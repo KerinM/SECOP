@@ -1,0 +1,88 @@
+# Datos del SECOP Integrado (19,71 GiB - no versionar)
+data/*.csv
+data/*.csv.gz
+data/*.json
+data/*.parquet
+data/*.zip
+data/bronze/
+data/silver/
+data/gold/
+data/tmp/
+data/partitions/
+data/raw/
+
+# Otros datos pesados
+*.csv
+*.csv.gz
+*.tsv
+*.parquet
+*.feather
+*.arrow
+*.avro
+*.orc
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+
+# Salidas de PostgreSQL
+*.sql.gz
+pg_dump_*
+pgdata/
+
+# Exportaciones de Power BI
+*.pbix
+*.pbit
+*.pbir
+docs/imagenes/*.pdf
+
+# Logs
+*.log
+logs/
+
+# Credenciales y secretos (nunca versionar - RNF-10)
+.env
+.env.*
+!.env.example
+*_password*
+*_secret*
+*.pem
+*.key
+*.pfx
+*.p12
+pgpass
+.pgpass
+.pgpass.conf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Node / herramientas
+node_modules/
+package-lock.json
+*.tsbuildinfo
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Sistema
+Thumbs.db
+$RECYCLE.BIN/
+System Volume Information/

@@ -1,0 +1,22 @@
+# Normaliza los finales de linea en el repositorio: el contenido se guarda
+# con LF y se convierte a CRLF solo al salir a Windows. Sin esto, cada archivo
+# aparece como modificado en cuanto core.autocrlf lo reescribe.
+* text=auto eol=lf
+
+# El DDL y los scripts de Python se ejecutan tal cual: LF siempre.
+*.sql text eol=lf
+*.py text eol=lf
+
+# PowerShell funciona mejor en Windows con CRLF.
+*.ps1 text eol=crlf
+
+# Markdown con LF, para que los diffs no mezclen los saltos de linea.
+*.md text eol=lf
+
+# Binarios
+*.png binary
+*.jpg binary
+*.pdf binary
+*.pbix binary
+*.parquet binary
+*.dump binary
