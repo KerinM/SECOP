@@ -16,7 +16,7 @@
 | **2** | **Modelo lógico y conceptual de la bodega de datos** | Analista de Datos | **Kerin** | `docs/modelo_relacional.md` |
 | **3** | **Aplicación y explicación de la metodología Medallion** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` (sección Medallion) |
 | **4** | **Explicación de los ETL** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` |
-| **5** | **Fotos de las visualizaciones** | QA / Visualización | **Isabella** | [`docs/imagenes/`](/imagenes)✅ + `docs/visualizaciones.md` |
+| **5** | **Fotos de las visualizaciones** | QA / Visualización | **Isabella** | [`docs/imagenes/`](/docs/imagenes/)✅ + `docs/visualizaciones.md` |
 
 ---
 
