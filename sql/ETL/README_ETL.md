@@ -6,7 +6,13 @@ arquitectura Medallón, en PostgreSQL 18.
 - **Fuente:** SECOP Integrado (datos.gov.co, dataset `rpmr-utcd`), contratos firmados entre 2017 y 2026, descargados el 29/09/2026 en 10 archivos CSV (uno por año).
 - **Base de datos:** `secop_dw`.
 - **Responsable de estas capas:** Jose (Ingeniero ETL).
-- **Capa oro:** no se incluye aquí. La construye y la documenta Kerin con `03_gold_modelo.sql`.
+- **Capa oro:** no se incluye aquí. La construye y la documenta Kerin, leyendo de `silver.contratos`.
+
+> **Compatibilidad con `sql/01_esquema.sql`.** Ese script define otro modelo: `staging.contratos_raw`,
+> `silver.contrato` (sin deduplicar, 22.670.028 filas) y un oro que suma `valor_contrato` sin ajustar.
+> Estos scripts usan `bronze.secop_raw` y `silver.contratos` (13.005.402 filas, deduplicada y con
+> `valor_ajustado`). Los dos modelos no se mezclan: el equipo debe acordar cuál alimenta la capa oro.
+> Si oro suma `valor_contrato` sin deduplicar ni ajustar versiones, 2018 da ≈ 692 billones en vez de ≈ 100.
 
 ---
 
@@ -20,6 +26,7 @@ arquitectura Medallón, en PostgreSQL 18.
 | 4 | `02c_correccion_valores.sql` | Plata | Query Tool, paso por paso | 20–60 min |
 | 5 | `eda_perfilado.sql` | Exploración | Query Tool | 5–20 min |
 | 6 | `05_qa_silver.sql` | Pruebas | Query Tool, prueba por prueba | ≈ 15 min |
+| 7 | `06_validacion_python.py` | Validación independiente | Terminal: `python 06_validacion_python.py` | 10–25 min |
 
 `02b_correccion_barras.sql` **solo se corre en una base que ya tenga plata creada con la versión
 anterior de la limpieza.** Si se corre `02_silver_limpieza.sql` desde cero, esa corrección ya va incluida.
@@ -117,6 +124,15 @@ salen infladas.
 | 8. Versiones = mismo contrato | Que las versiones de R7b tengan el mismo proceso, fecha de firma y entidad | 554.063 contratos: 0 con distinta entidad, 116 (0,02 %) con distinta fecha de firma, 4.720 (0,85 %) con distinto número de proceso |
 | 9. Totales por año | Totales en billones frente a las cifras oficiales, y los 10 valores más altos de un año | 2018: 102,54 (oficial ≈ 100); 2023: 125,33 (oficial ≈ 111 a octubre) |
 
+### `06_validacion_python.py`: validación independiente con Python
+- Revisa la plata con **otra herramienta**, sin usar las funciones de limpieza de la base. Solo lee: abre la conexión en modo de solo lectura.
+- Toma una muestra al azar del 0,8 % de plata (≈ 100.000 filas), trae la fila original de bronce, **la vuelve a limpiar en Python** con las mismas reglas (R1–R8) y compara columna por columna.
+- Además: conteos, filas eliminadas por R5 con su gemela en plata, promedio de versiones (R7b), extremos (R9b) y totales por año frente a las cifras oficiales.
+- Para quitar tildes y símbolos lee del servidor la tabla de caracteres de `unaccent` (`unaccent.rules`) y la aplica con código propio. Así `Nº` → `NO`, `7ª` → `7A`, `½` → ` 1/2` quedan igual que en PostgreSQL.
+- Se probó dañando la plata a propósito en 8 puntos distintos, y el script detectó los 8.
+- Requiere: `pip install pandas psycopg2-binary`. Deja el resultado en `reporte_validacion_python.md`.
+- El ETL se hizo en SQL; Python se usa solo para **validar**.
+
 ---
 
 ## Hallazgos de calidad
@@ -146,6 +162,7 @@ Sin ajustar, su valor sumaba $3.034.703.000.000; con el ajuste suma $5.858.500.0
 - Las pruebas garantizan que se cumplen las reglas definidas, pero **no corrigen errores de contenido de la fuente**, como nombres mal escritos o valores posibles pero incorrectos.
 - La regla R6 asume que 8 o más nueves son un valor de relleno. Un contrato real de $99.999.999 quedaría marcado; son 94 filas y el valor original se conserva en bronce.
 - La homologación (R3) solo cubre las 17 equivalencias del catálogo.
+- Algunos textos ya vienen **dañados desde SECOP** por un problema de codificación: la Ñ llega como `ï¿½` (ej. `NIï¿½O` en vez de `NIÑO`). La limpieza no los puede reparar con seguridad, porque no se sabe qué letra era, y en plata quedan como `NII? 1/2O`. Solo afecta nombres y textos; no afecta valores, fechas ni llaves.
 - R7b usa el **promedio** de las versiones porque el dataset no dice cuál es la última. El valor real
   vigente puede ser algo mayor o menor; cada versión original se conserva en `valor_contrato`.
 - R9b puede marcar algunos convenios grandes reales (ej. una cofinanciación de TransMilenio con el
@@ -170,4 +187,4 @@ Los CSV y la base de datos **no están en el repositorio**: pesan varios GB y Gi
   1. Crear una base vacía `secop_dw`.
   2. Correr en ella `CREATE EXTENSION IF NOT EXISTS unaccent;`.
   3. Clic derecho en `secop_dw` → **Restore…** → elegir el archivo.
-- **Después de restaurar:** correr `03_gold_modelo.sql` para construir la capa oro desde la plata corregida.
+- **Después de restaurar:** construir la capa oro desde `silver.contratos`.
