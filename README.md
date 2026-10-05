@@ -31,7 +31,7 @@ Este proyecto lo convierte en un **modelo relacional analítico**: una tabla de 
 | **2 · Modelo conceptual y lógico** | Kerin | ✅ Completo · modelo, 2 diagramas y DDL en [`docs/modelo_relacional.md`](docs/modelo_relacional.md) |
 | **3 · Metodología Medallion** | José | ✅ Implementada en las 3 capas |
 | **4 · Explicación de los ETL** | José | ✅ Scripts de descarga y carga funcionando |
-| **5 · Fotos de las visualizaciones** | Isabella | Pendiente |
+| **5 · Fotos de las visualizaciones** | Isabella | ✅ Completo hasta capa oro |
 
 **`bronze` y `silver` están cargadas y validadas** (16.025.993 y 13.005.402 filas, 42/42 pruebas de calidad OK). El Entregable 2 está documentado y su DDL está escrito, pero **la capa `gold` aún no se ha ejecutado**, porque su construcción necesita las credenciales de la base. Lo pendiente es correr `sql/02_modelo_gold.sql`, medir `gold` y completar el tablero de Power BI.
 
