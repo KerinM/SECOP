@@ -8,11 +8,15 @@ arquitectura Medallón, en PostgreSQL 18.
 - **Responsable de estas capas:** Jose (Ingeniero ETL).
 - **Capa oro:** no se incluye aquí. La construye y la documenta Kerin, leyendo de `silver.contratos`.
 
-> **Compatibilidad con `sql/01_esquema.sql`.** Ese script define otro modelo: `staging.contratos_raw`,
-> `silver.contrato` (sin deduplicar, 22.670.028 filas) y un oro que suma `valor_contrato` sin ajustar.
-> Estos scripts usan `bronze.secop_raw` y `silver.contratos` (13.005.402 filas, deduplicada y con
-> `valor_ajustado`). Los dos modelos no se mezclan: el equipo debe acordar cuál alimenta la capa oro.
-> Si oro suma `valor_contrato` sin deduplicar ni ajustar versiones, 2018 da ≈ 692 billones en vez de ≈ 100.
+> **Modelo retirado, ya resuelto.** El proyecto tenía dos pipelines en paralelo. El
+> anterior (`sql/retirado/`) usaba `staging.contratos_raw`, `silver.contrato` sin
+> deduplicar, 22.670.028 filas y sumaba `valor_contrato` sin ajustar. **Estos scripts usan
+> `bronze.secop_raw` y `silver.contratos` (13.005.402 filas, deduplicada y con
+> `valor_ajustado`).** Ya se acordó cuál alimenta la capa oro: **este**. El otro quedó
+> archivado en `sql/retirado/` y no se ejecuta.
+>
+> La diferencia no es cosmética: si oro sumara `valor_contrato` sin deduplicar ni ajustar
+> versiones, 2018 daría ≈ 692 billones en vez de ≈ 100.
 
 ---
 

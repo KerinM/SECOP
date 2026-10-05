@@ -30,7 +30,7 @@
 -- -----------------------------------------------------------------------------
 -- 1. La intercalacion (LC_COLLATE / LC_CTYPE) se FIJA al crear la base y no se
 --    puede cambiar despues. Cambiarla obliga a recrear la base entera con sus
---    22.670.028 filas. El dialogo de DBeaver no expone esos dos campos.
+--    16.025.993 filas en bronce. El dialogo de DBeaver no expone esos dos campos.
 -- 2. El cluster se creo con intercalacion Spanish_Spain.1252 (la de Windows),
 --    no una de Linux. Por eso la base se crea desde TEMPLATE template0 en vez
 --    de template1.
@@ -156,24 +156,24 @@ $roles$;
 -- indicar LOCALE en el mismo comando es un error.
 -- =============================================================================
 
-\echo '--- [2/6] Base de datos secop_integrado ---'
+\echo '--- [2/6] Base de datos secop_dw ---'
 
 -- Se consulta primero si la base ya existe y se guarda el resultado en la
 -- variable de psql :ya_existia, para poder avisar sin mentirse: si la base no
 -- existia y este script la crea, no hay nada que avisar.
-SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'secop_integrado') AS ya_existia
+SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'secop_dw') AS ya_existia
 \gset
 
 \if :ya_existia
-    \echo 'ATENCION: secop_integrado YA EXISTIA. Se reutiliza tal cual.'
+    \echo 'ATENCION: secop_dw YA EXISTIA. Se reutiliza tal cual.'
     \echo 'Si fue creada desde el dialogo de DBeaver, probablemente tenga la'
     \echo 'intercalacion Spanish_Spain.1252 del cluster, que no sirve. El chequeo [2]'
     \echo 'de la verificacion final lo delata. En ese caso habria que hacer'
-    \echo 'DROP DATABASE secop_integrado y volver a correr este script.'
+    \echo 'DROP DATABASE secop_dw y volver a correr este script.'
 \else
-    \echo 'Creando secop_integrado con ENCODING UTF8 y LC_COLLATE es-CO-x-icu...'
+    \echo 'Creando secop_dw con ENCODING UTF8 y LC_COLLATE es-CO-x-icu...'
     SELECT format(
-               'CREATE DATABASE secop_integrado
+               'CREATE DATABASE secop_dw
                   ENCODING   ''UTF8''
                   LC_COLLATE ''es-CO-x-icu''
                   LC_CTYPE   ''es-CO-x-icu''
@@ -183,13 +183,19 @@ SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'secop_integrado') AS y
     \gexec
 \endif
 
-\connect secop_integrado
+\connect secop_dw
 
-\echo 'Conectado a secop_integrado.'
+\echo 'Conectado a secop_dw.'
 
 -- =============================================================================
--- 3. Collation secop_ci  (para la fusion de duplicados de RF-05)
+-- 3. Collation secop_ci  (SOLO para el modelo retirado, ver sql/retirado/)
 -- =============================================================================
+-- AVISO: el pipeline vigente NO usa esta collation. La deduplicacion de plata
+-- (R1) normaliza de forma determinista, con initcap y quita de tildes, y por eso
+-- la capa oro puede declarar UNIQUE en serio y no la necesita. Este bloque se
+-- mantiene unicamente porque sql/retirado/01_esquema.sql la usa; si ese modelo
+-- se borra del historial, este bloque se puede borrar con el.
+--
 -- NO va en la intercalacion de la base. Es una collation ICU NO determinista con
 -- fuerza secundaria, que ignora mayusculas pero RESPETA los acentos.
 --
@@ -231,8 +237,8 @@ $collation$;
 -- =============================================================================
 -- 4. Esquemas Medallion
 -- =============================================================================
--- staging = Bronze (copia cruda, 22 columnas text, sin transformar)
--- silver  = datos tipificados y normalizados
+-- bronze  = dato crudo, tal cual llega del origen
+-- silver  = datos tipificados, deduplicados y normalizados
 -- gold    = modelo en estrella, lo unico que lee Power BI
 -- logs    = trazabilidad de la carga y de las consultas
 --
@@ -240,13 +246,13 @@ $collation$;
 -- esquema sobrevive a cualquier cambio de clave del superusuario.
 -- =============================================================================
 
-\echo '--- [4/6] Esquemas Medallion (staging, silver, gold, logs) ---'
+\echo '--- [4/6] Esquemas Medallion (bronze, silver, gold, logs) ---'
 
 DO $esquemas$
 DECLARE
     esquema text;
 BEGIN
-    FOREACH esquema IN ARRAY ARRAY['staging', 'silver', 'gold', 'logs'] LOOP
+    FOREACH esquema IN ARRAY ARRAY['bronze', 'silver', 'gold', 'logs'] LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = esquema) THEN
             EXECUTE format('CREATE SCHEMA %I AUTHORIZATION secop_etl', esquema);
             RAISE NOTICE 'Esquema % creado', esquema;
@@ -274,11 +280,11 @@ $esquemas$;
 
 \echo '--- [5/6] Privilegios de secop_lectura sobre gold ---'
 
-GRANT CONNECT ON DATABASE secop_integrado TO secop_etl, secop_lectura;
+GRANT CONNECT ON DATABASE secop_dw TO secop_etl, secop_lectura;
 
--- gold es lo unico que consulta Power BI. En staging, silver y logs no se
+-- gold es lo unico que consulta Power BI. En bronze, silver y logs no se
 -- concede nada: un esquema recien creado no le da privilegios a PUBLIC, asi
--- que secop_lectura no ve siquiera la existencia de staging y silver.
+-- que secop_lectura no ve siquiera la existencia de bronze y silver.
 GRANT USAGE ON SCHEMA gold TO secop_lectura;
 
 -- Toda tabla futura en gold nace legible por secop_lectura, sin tener que
@@ -311,12 +317,12 @@ SELECT datname,
        datcollate,
        datctype
 FROM   pg_database
-WHERE  datname = 'secop_integrado';
+WHERE  datname = 'secop_dw';
 
 \echo '[3] Los 4 esquemas Medallion (esperado: 4 filas):'
 SELECT schema_name
 FROM   information_schema.schemata
-WHERE  schema_name IN ('staging', 'silver', 'gold', 'logs')
+WHERE  schema_name IN ('bronze', 'silver', 'gold', 'logs')
 ORDER  BY schema_name;
 
 \echo '[4] Collation secop_ci de RF-05 (esperado: s / i / f):'
@@ -334,7 +340,7 @@ WHERE  rolname IN ('secop_etl', 'secop_lectura')
 ORDER  BY rolname;
 
 \echo '[7] Tamano actual de la base (vacio o muy pequeno todavia, no hay datos):'
-SELECT pg_size_pretty(pg_database_size('secop_integrado')) AS tamano_actual;
+SELECT pg_size_pretty(pg_database_size('secop_dw')) AS tamano_actual;
 
 \echo ''
 \echo '### Instalacion completada.'

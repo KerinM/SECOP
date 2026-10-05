@@ -5,9 +5,9 @@ Proyecto de construcción de una **base de datos relacional** a partir de los da
 | | |
 |---|---|
 | **Fuente** | [SECOP Integrado — datos.gov.co](https://www.datos.gov.co/Estad-sticas-Nacionales/SECOP-Integrado/rpmr-utcd) · Socrata ID `rpmr-utcd` |
-| **Volumen** | **22.670.028 registros** · 22 columnas · 19,40 GiB en CSV |
+| **Volumen** | **13.005.402 registros** en plata · **16.025.993** en bronce · 16 columnas |
 | **Motor** | PostgreSQL 18.6 en `localhost:5432` |
-| **Arquitectura** | Medallion (staging → silver → gold) |
+| **Arquitectura** | Medallion (bronze → silver → gold) en la base `secop_dw` |
 | **Visualización** | Power BI Desktop |
 | **Equipo** | Kerin · José · Isabella |
 | **Entrega** | miércoles **14 de octubre de 2026** |
@@ -17,23 +17,23 @@ Proyecto de construcción de una **base de datos relacional** a partir de los da
 
 ## 1. ¿Qué hace este proyecto?
 
-El SECOP Integrado es un **archivo CSV plano** de 22,67 millones de contratos, no una base de datos. Tiene 22 columnas, casi todas texto, con fechas imposibles, números de contrato repetidos y categorías duplicadas por diferencias de mayúsculas.
+El SECOP Integrado es un **archivo CSV plano** de contratos, no una base de datos. Tiene 16 columnas, casi todas texto, con fechas imposibles, números de contrato repetidos, categorías duplicadas por diferencias de mayúsculas y **3 millones de filas duplicadas exactas**.
 
-Este proyecto lo convierte en un **modelo relacional analítico**: una tabla de hechos con 22,67M de contratos y 8 dimensiones, particionada por año, con índices pensados para consultas de negocio y un tablero en Power BI.
+Este proyecto lo convierte en un **modelo relacional analítico**: una tabla de hechos y 7 dimensiones, particionada por año, con índices pensados para consultas de negocio y un tablero en Power BI.
 
-**El grano de la tabla de hechos es un contrato registrado**, es decir, una de las 22.670.028 filas del origen. Los 4.621.012 contratos con número repetido se conservan marcados, no se eliminan.
+**El grano de la tabla de hechos es una versión de contrato**, es decir, una de las 13.005.402 filas de `silver.contratos`. SECOP II publica cada modificación como una fila nueva, así que un contrato con tres modificaciones aparece tres veces, y eso es lo que permite analizar el fraccionamiento (RF-08). Los duplicados **exactos** sí se eliminan: 16.025.993 → 13.005.402.
 
 ## 2. Estado actual
 
 | Entregable | Responsable | Estado |
 |---|---|---|
 | **1 · Volumetría** | Kerin | ✅ Completo y verificado contra la carga real |
-| **2 · Modelo conceptual y lógico** | Kerin | ✅ DDL construido y cargado |
+| **2 · Modelo conceptual y lógico** | Kerin | ✅ Completo · modelo, 2 diagramas y DDL en [`docs/modelo_relacional.md`](docs/modelo_relacional.md) |
 | **3 · Metodología Medallion** | José | ✅ Implementada en las 3 capas |
 | **4 · Explicación de los ETL** | José | ✅ Scripts de descarga y carga funcionando |
 | **5 · Fotos de las visualizaciones** | Isabella | Pendiente |
 
-**La base de datos está construida y cargada con los 22.670.028 registros.** Las tres capas cuadran exactamente, con 0 filas perdidas en la transformación y 0 huérfanos. Lo pendiente es el tablero de Power BI.
+**`bronze` y `silver` están cargadas y validadas** (16.025.993 y 13.005.402 filas, 42/42 pruebas de calidad OK). El Entregable 2 está documentado y su DDL está escrito, pero **la capa `gold` aún no se ha ejecutado**, porque su construcción necesita las credenciales de la base. Lo pendiente es correr `sql/02_modelo_gold.sql`, medir `gold` y completar el tablero de Power BI.
 
 ## 3. Empezar aquí
 
@@ -49,39 +49,49 @@ Este proyecto lo convierte en un **modelo relacional analítico**: una tabla de 
 
 ## 4. Inicio rápido
 
+Hay dos rutas según el estado de tu máquina. `psql` no lee `.env`: para pasar la clave
+sin escribirla en la línea de comandos, la variable `PGPASSWORD` es la que lo hace.
+
+### 4.1 Ya tengo la base `secop_dw` cargada
+
+Si `bronze.secop_raw` y `silver.contratos` ya están poblados, solo falta construir oro.
+No hace falta correr `00_instalacion.sql` ni el ETL.
+
+```powershell
+# 1. Credenciales locales (nunca se versionan)
+Copy-Item .env.example .env
+$env:PGPASSWORD = (Get-Content .env | Select-String "^PGPASSWORD=").ToString().Split("=")[1]
+
+# 2. Construir la capa oro desde silver. Es idempotente: con -v recrear=1
+#    reconstruye SOLO gold y deja bronce y plata intactas.
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U secop_etl -h localhost -d secop_dw -w -f sql\02_modelo_gold.sql
+```
+
+### 4.2 Quiero montarlo desde cero
+
 ```powershell
 # 1. Configurar PostgreSQL (tuning aplicado por script, con auto-elevación)
 #    Detalle en docs/instalacion-postgresql-dbeaver.md, seccion 3
 .\scripts\tuning_postgresql.ps1
 Restart-Service -Name "postgresql-x64-18"
 
-# 2. Crear rol, base de datos y esquemas
+# 2. Crear rol secop_etl, base secop_dw y esquemas bronze/silver/gold/logs.
+#    Es idempotente: si la base ya existe, la reutiliza tal cual.
 & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost -d postgres -i sql\00_instalacion.sql
 
-# 3. Crear el modelo. Por defecto es idempotente; con -v recrear=1
-#    reconstruye desde cero (¡borra los datos!)
-& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U secop_etl -h localhost -d secop_integrado -w -v recrear=1 -i sql\01_esquema.sql
+# 3. Cargar bronce y plata con el ETL, en este orden:
+#    01_cargar_bronce -> 02_silver_limpieza -> 02b_correccion_barras
+#    -> 02c_correccion_valores -> 05_qa_silver
+#    Cada paso está documentado en sql/ETL/README_ETL.md
 
-# 4. Entorno de Python
+# 4. Construir la capa oro
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U secop_etl -h localhost -d secop_dw -w -f sql\02_modelo_gold.sql
+
+# 5. Entorno de Python (solo lo necesita 06_validacion_python.py)
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install requests psycopg2-binary
-
-# 5. Credenciales locales (nunca se versionan)
-Copy-Item .env.example .env
 ```
-
-### Cargar los datos
-
-```powershell
-# Descargar las 454 páginas (~19,4 GiB, ~50 min con 6 hilos). Reanudable.
-python scripts\descargar_secop.py --hilos 6
-
-# Cargar y transformar. --etapa staging|silver|gold|todas
-python scripts\cargar_secop.py --etapa todas --truncar
-```
-
-Tiempos reales de la carga completa: `COPY` a staging **5,9 min**, silver **91,8 min**, gold **144,8 min**. Las tres capas deben acabar en 22.670.028 filas.
 
 ## 5. Estructura del proyecto
 
@@ -91,27 +101,37 @@ SECOP/
 ├── .gitignore                 <- Excluye datos, logs, .pbix y credenciales
 ├── .env.example               <- Plantilla de credenciales (sin clave real)
 │
-├── data/                      <- Datos descargados (NO se versionan, 19,4 GiB)
-│   └── descargas/             <- 454 partes CSV de 50.000 filas
+├── data/                      <- Datos descargados (NO se versionan)
+│   └── descargas/             <- 10 CSV, uno por año de contrato (2017-2026)
 │
 ├── sql/
-│   ├── 00_instalacion.sql     <- Rol, base de datos, esquemas, secop_ci, permisos
-│   └── 01_esquema.sql         <- staging + silver + gold (8 dim, 30 particiones, vista)
+│   ├── 00_instalacion.sql       <- Rol, base secop_dw y esquemas medallion
+│   ├── 02_modelo_gold.sql      <- E2: capa oro (7 dim, 13 particiones, vistas)
+│   ├── ETL/                     <- E3+E4: bronce, plata, correcciones y QA
+│   │   ├── 01_cargar_bronce.sql
+│   │   ├── 02_silver_limpieza.sql       reglas R1-R9
+│   │   ├── 02b_correccion_barras.sql
+│   │   ├── 02c_correccion_valores.sql   R7b y R9b
+│   │   ├── 05_qa_silver.sql             42 pruebas
+│   │   └── README_ETL.md
+│   └── retirado/                <- Modelo anterior (secop_integrado). NO ejecutar
+│       ├── README.md
+│       ├── 01_esquema.sql
+│       ├── descargar_secop.py
+│       └── cargar_secop.py
 │
 ├── scripts/
-│   ├── tuning_postgresql.ps1  <- Ajustes de postgresql.conf, con backup
-│   ├── descargar_secop.py     <- API paginada de Socrata, reanudable
-│   └── cargar_secop.py        <- COPY + silver + gold, con verificación
+│   └── tuning_postgresql.ps1  <- Ajustes de postgresql.conf, con backup
 │
 └── docs/
     ├── README.md                  índice
-    ├── volumetria.md              Entregable 1, con medición real de la carga
+    ├── volumetria.md              Entregable 1, con medición del corte vigente
     ├── Plan_Entrega.md            plan, roles, calendario
     ├── requerimientos.md          20 RF + 10 RNF
     ├── instalacion-postgresql-dbeaver.md   guía de instalación
     ├── decisiones_tecnicas.md     por qué el modelo es así, y lo que queda pendiente
     ├── bitacora_sesiones.md       cronología y errores encontrados
-    ├── modelo_relacional.md       Pendiente (Kerin) - Entregable 2
+    ├── modelo_relacional.md       Entregable 2 (Kerin)
     ├── etl_carga.md               Pendiente (José) - Entregables 3 y 4
     ├── calidad_datos.md           Pendiente (Isabella)
     ├── visualizaciones.md         Pendiente (Isabella) - Entregable 5
@@ -121,32 +141,32 @@ SECOP/
     └── imagenes/                  Pendiente (Isabella) - Entregable 5
 ```
 
-El `.gitignore` excluye `data/`, `logs/` y las credenciales: de los 19,8 GB del proyecto solo se versionan **0,21 MB** de código y documentación.
+El `.gitignore` excluye `data/`, `logs/` y las credenciales: del proyecto solo se versionan código y documentación, unos pocos cientos de KB.
 
 ## 6. Hallazgos clave del dataset
 
-Medidos contra la API el 26/09/2026. El detalle está en [`docs/volumetria.md`](docs/volumetria.md).
+Medidos sobre la base `secop_dw` cargada. El detalle está en [`docs/volumetria.md`](docs/volumetria.md).
 
 | Hallazgo | Valor |
 |---|---|
-| Registros | **22.670.028** (2,27× el mínimo de 10 millones exigido) |
-| Distribución por origen | SECOPI **14.603.263** · SECOPII **8.066.765** |
-| La ficha web miente | Declara 20.800.218 — desfasada en **1.869.810** registros |
-| Contratos con número repetido | **4.621.012** (20,38%) |
-| Sin fecha de firma válida | **1.779.534** (7,85%) tras la carga: nulos del origen **+ fechas imposibles** (1899, 2099, 8201) |
-| Fechas de firma en el futuro | **106** registros, en 18 años entre 2044 y 2099 |
-| Valor máximo | `2.407.343.429.966` (centinela de error, contamina las sumas) |
-| Valores en cero | **802.977** |
-| Orden | **No está ordenado cronológicamente** |
-| Tamaño real | 917,7 bytes/fila → **19,40 GiB** en CSV · **60 GB** en PostgreSQL con las 3 capas |
+| Registros en `bronze` | **16.025.993** (1,60× el mínimo de 10 millones exigido) |
+| Registros en `silver` | **13.005.402** (1,30× el mínimo) tras deduplicar |
+| Duplicados exactos eliminados | **3.020.591** (18,85%) |
+| Rangos de contratos | 2017 – 2026, en 10 CSV (uno por año) |
+| La ficha web miente | En el corte anterior declaraba 20.800.218 cuando la verdad eran 22.670.028: desfasada en **1.869.810** |
+| Contratos con versiones | **554.063**; en 4.720 de ellos (0,85%) cambia el número de proceso entre versiones |
+| Valores atípicos | **33.928**, marcados y **no borrados** |
+| Nombres de proveedor con barra suelta | **538**, corregidos |
+| Validación de plata | **42/42** pruebas OK |
+| Texto dañado desde SECOP | La `ñ` llega como `���`. Irreparable, y **solo afecta nombres**: ni valores, ni fechas, ni llaves |
 
-**Consecuencia práctica:** el conteo de referencia es siempre el de la API en vivo, nunca el de la ficha web.
+**Consecuencia práctica:** el conteo de referencia es siempre `count(*)` sobre la base, nunca el de la ficha web.
 
 **Los tres datos que más sorprenden al trabajar con este origen:**
 
 1. **El CSV tiene saltos de línea dentro de los campos.** Contar líneas no sirve; hay que parsear con un lector CSV.
-2. **El texto llega con la caja rota** (`ADQUISICIoN`, `CRIPTOGRaFICOS`). Las dimensiones colapsan las variantes gracias a la collation `secop_ci`, no a la función de normalización.
-3. **El número de contrato no es único.** Por eso el grano es el contrato *registrado* y no el número de contrato.
+2. **El texto llega con la caja rota** (`ADQUISICIoN`, `CRIPTOGRaFICOS`) y hay 538 nombres con barras sueltas. La normalización ocurre en **plata** (reglas R1 y R3), no en el índice de la base, así que las claves naturales de oro son planas y sus `UNIQUE` no dependen de ninguna collation.
+3. **El número de contrato no es único.** SECOP II publica cada modificación como una fila nueva, y por eso el grano es la **versión** y no el contrato.
 
 ## 7. Roles
 
@@ -178,7 +198,7 @@ Lunes y miércoles, 6 sesiones. Entrega el **miércoles 14/10/2026**.
 | Python | 3.14.5 |
 | RAM | 15,3 GB |
 | Núcleos | 12 lógicos |
-| Disco libre | 128,4 GB antes de cargar; ~41,6 GB después de los 60 GB de base |
+| Disco libre | 128,4 GB antes de cargar |
 
 ## 10. Licencia y atribución
 

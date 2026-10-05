@@ -6,7 +6,7 @@ Guía técnica para montar y dejar operativo el entorno de base de datos del pro
 |---|---|
 | **Proyecto** | SECOP Integrado — base relacional de contratación pública de Colombia |
 | **Fuente de datos** | [SECOP Integrado](https://www.datos.gov.co/Estad-sticas-Nacionales/SECOP-Integrado/rpmr-utcd) · Socrata ID `rpmr-utcd` |
-| **Volumen a cargar** | **22.670.028 registros** · ~19,71 GiB en CSV |
+| **Volumen a cargar** | **16.025.993 registros** · ~19,71 GiB en CSV |
 | **Motor** | PostgreSQL 18.6 en `localhost:5432` |
 | **Cliente SQL** | DBeaver Community 26.2.0 (instalación por usuario) |
 | **Scripts** | Python 3.14.5 |
@@ -58,7 +58,7 @@ Leídas con `SELECT ... FROM pg_database` el 26/09/2026:
 | `template0` | UTF8 | `Spanish_Spain.1252` | Plantilla sin conexiones, la que se usa para crear bases con codificación propia |
 | `template1` | UTF8 | `Spanish_Spain.1252` | Plantilla estándar |
 
-⚠️ El clúster se creó con intercalación **`Spanish_Spain.1252`**, que es la de Windows, no una de Linux. El proyecto SECOP usa base propia (`secop_integrado`) y **no debe mezclarse** con `placsp_contratacion`.
+⚠️ El clúster se creó con intercalación **`Spanish_Spain.1252`**, que es la de Windows, no una de Linux. El proyecto SECOP usa base propia (`secop_dw`) y **no debe mezclarse** con `placsp_contratacion`.
 
 El clúster tiene **883 collations ICU** disponibles (proveedor `icu`), entre ellas `es-CO-x-icu`, `es-419-x-icu` y `es-x-icu`. Ver §4.2.
 
@@ -128,7 +128,7 @@ Esto mantiene el acceso de DBeaver, `psql` y Python — que corren en la misma m
 | Host que **funciona** | `www.datos.gov.co` |
 | Host que **no resuelve** | `api.datos.gov.co` — no usar |
 | Identificador del dataset | `rpmr-utcd` |
-| Conteo en vivo | **22.670.028** |
+| Conteo en vivo | **16.025.993** |
 | Conteo en la ficha web | 20.800.218 — **desfasado en 1.869.810, no usar** |
 | Formato de descarga | JSON paginado sobre `/resource/` |
 | Compresión | El endpoint `/api/views/.../rows.csv?accessType=DOWNLOAD` **no admite gzip** |
@@ -172,7 +172,7 @@ Dos formas de aplicarlo. **Opción recomendada:** al final del archivo se agrega
 
 ```conf
 # ============================================================
-# SECOP Integrado - tuning para carga de 22.670.028 filas
+# SECOP Integrado - tuning para carga de 16.025.993 filas
 # Aplicado: 26/09/2026 - responsable: Jose (ETL)
 # Justificación de cada valor en docs/instalacion-postgresql-dbeaver.md
 # ============================================================
@@ -277,7 +277,7 @@ CREATE ROLE secop_lectura WITH LOGIN;
 **RNF-07** exige UTF-8. La intercalación de la base define cómo se ordenan y comparan los textos, y **se fija al crearla**: cambiarla después obliga a recrear la base entera. Por eso la decisión se toma ahora, no después de cargar 20 GiB.
 
 ```sql
-CREATE DATABASE secop_integrado
+CREATE DATABASE secop_dw
     ENCODING 'UTF8'
     LC_COLLATE 'es-CO-x-icu'
     LC_CTYPE  'es-CO-x-icu'
@@ -334,7 +334,7 @@ La fuerza secundaria ignora mayúsculas pero **respeta los acentos**, que es jus
 ```sql
 SELECT datname, pg_encoding_to_char(encoding) AS codificacion, datcollate, datctype
 FROM pg_database
-WHERE datname = 'secop_integrado';
+WHERE datname = 'secop_dw';
 ```
 
 Debe mostrar `UTF8`, `es-CO-x-icu` y `es-CO-x-icu`.
@@ -347,21 +347,21 @@ La §4.2.1 explica por qué hace falta. Este es el comando:
 CREATE COLLATION secop_ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
 ```
 
-Se crea en `secop_integrado`, dentro del esquema `public` (donde la deja el `search_path`), para poder escribir `COLLATE secop_ci` sin calificar en el DDL de las dimensiones. Requiere ICU, que este clúster tiene disponible (883 collations, §1.2.1).
+Se crea en `secop_dw`, dentro del esquema `public` (donde la deja el `search_path`), para poder escribir `COLLATE secop_ci` sin calificar en el DDL de las dimensiones. Requiere ICU, que este clúster tiene disponible (883 collations, §1.2.1).
 
 ⚠️ El §8 la verifica, pero antes no había ningún comando que la creara: faltaba este paso. Ya está corregido y está en `sql/00_instalacion.sql`.
 
 ### 4.4 Esquemas Medallion
 
 ```sql
-\c secop_integrado
+\c secop_dw
 
-CREATE SCHEMA staging AUTHORIZATION secop_etl;   -- Bronze
+CREATE SCHEMA bronze  AUTHORIZATION secop_etl;   -- dato crudo
 CREATE SCHEMA silver   AUTHORIZATION secop_etl;
 CREATE SCHEMA gold     AUTHORIZATION secop_etl;
 CREATE SCHEMA logs     AUTHORIZATION secop_etl;
 
-GRANT CONNECT ON DATABASE secop_integrado TO secop_etl, secop_lectura;
+GRANT CONNECT ON DATABASE secop_dw TO secop_etl, secop_lectura;
 GRANT USAGE ON SCHEMA gold TO secop_lectura;
 
 -- OJO: el FOR ROLE secop_etl es obligatorio. Sin él, este GRANT se aplica solo
@@ -373,14 +373,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE secop_etl IN SCHEMA gold
 
 El `ALTER DEFAULT PRIVILEGES` es importante: hace que **toda tabla futura** en `gold` sea legible por Power BI sin tener que repetir el `GRANT`. Y el `FOR ROLE secop_etl` es lo que lo hace funcionar: un `ALTER DEFAULT PRIVILEGES` sin `FOR ROLE` aplica a los objetos del rol **que ejecuta el script** (`postgres`), no a los de `secop_etl`. Sin ese calificador, las tablas de `gold` —que crea `secop_etl`— no serían visibles para Power BI.
 
-Tampoco se concede nada sobre `staging`, `silver` y `logs`: un esquema recién creado no da privilegios a `PUBLIC`, así que `secop_lectura` ni siquiera ve que existen.
+Tampoco se concede nada sobre `bronze`, `silver` y `logs`: un esquema recién creado no da privilegios a `PUBLIC`, así que `secop_lectura` ni siquiera ve que existen.
 
 ### 4.5 Verificar
 
 ```sql
 SELECT datname, pg_encoding_to_char(encoding) AS codificacion, datcollate
 FROM pg_database
-WHERE datname = 'secop_integrado';
+WHERE datname = 'secop_dw';
 ```
 
 Debe mostrar `UTF8` y `es-CO-x-icu`.
@@ -400,7 +400,7 @@ Debe mostrar `UTF8` y `es-CO-x-icu`.
 | Nombre de la conexión | `SECOP Integrado` |
 | Host | `localhost` |
 | Puerto | `5432` |
-| Base de datos | `secop_integrado` |
+| Base de datos | `secop_dw` |
 | Usuario | `secop_etl` |
 | Contraseña | *(la que definiste en §4.1)* |
 | Autenticación | **Native** / SCRAM-SHA-256 |
@@ -476,7 +476,7 @@ Crear `.env` en la raíz del proyecto. **Nunca** se sube al repositorio; `.gitig
 ```
 PGHOST=localhost
 PGPORT=5432
-PGDATABASE=secop_integrado
+PGDATABASE=secop_dw
 PGUSER=secop_etl
 PGPASSWORD=tu_clave_aqui
 SOCRATA_ID=rpmr-utcd
@@ -508,15 +508,15 @@ $u = "https://www.datos.gov.co/resource/rpmr-utcd.json?`$limit=5&`$offset=0"
 ### 7.2 Secuencia de la carga
 
 ```text
-1. staging.contratos_raw   -> COPY FROM STDIN, 22 columnas text, sin transformar
-2. silver.contrato         -> COPY + conversion a tipos nativos + es_fecha_valida()
-3. silver.dim_*           -> 8 dimensiones, tipificadas y normalizadas
+1. bronze.secop_raw         -> COPY FROM STDIN, dato crudo del origen
+2. silver.contratos        -> tipificado, deduplicado y normalizado (R1-R9)
+3. plata no tiene dimensiones; las 7 de oro van en 02_modelo_gold.sql
 4. gold.fact_contrato      -> tabla de hechos particionada por anio
 5. indices + VACUUM ANALYZE
-6. verificacion: count(*) = 22.670.028
+6. verificacion plata: 42/42 pruebas (sql/ETL/05_qa_silver.sql)
 ```
 
-Los archivos `.sql` van numerados en `sql/` y los scripts en `scripts/`, ambos ya versionados.
+Los archivos van numerados en `sql/`, y los del pipeline vigente en `sql/ETL/`. Los del modelo retirado quedaron en `sql/retirado/`.
 
 ### 7.3 Monitorear la carga
 
@@ -527,7 +527,7 @@ SELECT pid, state, wait_event_type, wait_event,
        now() - query_start AS duracion,
        left(query, 80) AS consulta
 FROM pg_stat_activity
-WHERE datname = 'secop_integrado'
+WHERE datname = 'secop_dw'
 ORDER BY query_start;
 ```
 
@@ -545,7 +545,7 @@ SELECT version();
 
 -- 2. Codificacion e intercalacion de la base
 SELECT datname, pg_encoding_to_char(encoding) AS codificacion, datcollate, datctype
-FROM pg_database WHERE datname='secop_integrado';
+FROM pg_database WHERE datname='secop_dw';
 
 -- 3. Parametros de tuning aplicados
 SELECT name, setting, unit FROM pg_settings
@@ -556,7 +556,7 @@ ORDER BY name;
 
 -- 4. Los 4 esquemas Medallion existen
 SELECT schema_name FROM information_schema.schemata
-WHERE schema_name IN ('staging','silver','gold','logs') ORDER BY 1;
+WHERE schema_name IN ('bronze','silver','gold','logs') ORDER BY 1;
 
 -- 5. La collation no determinista de RF-05
 SELECT collname, collprovider FROM pg_collation WHERE collname = 'secop_ci';
@@ -565,7 +565,7 @@ SELECT collname, collprovider FROM pg_collation WHERE collname = 'secop_ci';
 SELECT has_schema_privilege('secop_lectura','gold','USAGE') AS puede_leer_gold;
 
 -- 7. Espacio en disco
-SELECT pg_size_pretty(pg_database_size('secop_integrado')) AS tamano_actual;
+SELECT pg_size_pretty(pg_database_size('secop_dw')) AS tamano_actual;
 ```
 
 Criterio de éxito:
@@ -577,12 +577,12 @@ Criterio de éxito:
 | 3 | `shared_buffers` | `4GB` |
 | 3 | `work_mem` | `64MB` |
 | 3 | `listen_addresses` | `localhost` |
-| 4 | Esquemas | 4 filas: `gold`, `logs`, `silver`, `staging` |
+| 4 | Esquemas | 4 filas: `bronze`, `gold`, `logs`, `silver` |
 | 5 | Collation RF-05 | 1 fila: `secop_ci` |
 | 6 | Privilegios | `t` |
 | 7 | Tamaño | vacío o muy pequeño antes de cargar; **~11–26 GiB** después |
 
-**Estado al 26/09/2026:** la conexión funciona y el clúster responde. Los puntos 2 a 7 **todavía no se cumplen** porque la base `secop_integrado` aún no se ha creado. Los valores de `pg_settings` son los de fábrica descritos en §1.3.
+**Estado al 26/09/2026:** la conexión funciona y el clúster responde. Los puntos 2 a 7 **todavía no se cumplen** porque la base `secop_dw` aún no se ha creado. Los valores de `pg_settings` son los de fábrica descritos en §1.3.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Proyecto:** Base de datos relacional de contratación pública de Colombia (SECOP I + SECOP II) construida sobre datos abiertos oficiales.
 **Fuente:** [SECOP Integrado](https://www.datos.gov.co/Estad-sticas-Nacionales/SECOP-Integrado/rpmr-utcd) · ID Socrata `rpmr-utcd` · Agencia Nacional de Contratación Pública — Colombia Compra Eficiente.
-**Volumetría:** **22.670.028 registros** · 22 columnas · ~19,71 GiB en CSV · **11 – 26 GiB** proyectado en PostgreSQL.
+**Volumetría:** **16.025.993 registros** en el corte del 29/09/2026 · 16 columnas · **13.005.402 filas** en plata tras deduplicar · detalle y proyecciones en [`volumetria.md`](volumetria.md).
 **Motor:** PostgreSQL 18.6 + DBeaver 26.2.0 + Python 3.14 + Power BI Desktop.
 **Entrega:** miércoles 14 de octubre de 2026.
 
@@ -26,11 +26,11 @@
 
 ### RF-01 — Descarga íntegra y automatizada del dataset
 
-El sistema debe descargar la totalidad de los **22.670.028 registros** del conjunto SECOP Integrado desde la API oficial de Socrata, sin intervención manual y sin depender de un archivo descargado a mano.
+El sistema debe descargar la totalidad de los registros del conjunto SECOP Integrado desde la API oficial de Socrata, sin intervención manual y sin depender de un archivo descargado a mano.
 
 La descarga debe realizarse de forma **paginada y en paralelo** sobre el endpoint `/resource/rpmr-utcd.json?$limit=&$offset=`, porque el endpoint oficial de archivo completo (`/api/views/.../rows.csv?accessType=DOWNLOAD`) no admite compresión ni rangos y entrega ~19,71 GiB a una velocidad medida de 0,5 – 1,2 MB/s (4 a 10 horas de espera).
 
-**Criterio de aceptación:** el total de filas descargadas es exactamente 22.670.028 y el total de bytes descargados es consistente con 933,6 bytes/fila ± 5%.
+**Criterio de aceptación:** el total de filas descargadas coincide exactamente con el `count(*)` de la API en la fecha de descarga (**16.025.993** en el corte vigente, 29/09/2026) y el total de bytes descargados es consistente con el promedio de bytes por fila medido en ese corte, ± 5%.
 
 ### RF-02 — Carga por lotes con `COPY FROM STDIN`
 
@@ -86,7 +86,7 @@ El sistema debe estructurar los datos en un esquema relacional en estrella compu
 
 > **Desviación respecto a la especificación original, aceptada durante la construcción.** Se pidieron 9 dimensiones incluyendo `dim_ubicacion` (1.131 municipios). Se implementaron **8**: `dim_ubicacion` se eliminó porque municipio y departamento ya son atributos de `dim_entidad`, y mantenerla duplicaba el dato sin aportar granularidad. `dim_tiempo` se extendió a 1900-2030 (no 2000-2026) porque `fecha_firma` necesita que exista la fecha centinela `1900-01-01` para las 1.779.534 filas sin fecha válida. El motivo completo está en `decisiones_tecnicas.md`.
 
-**Criterio de aceptación:** `information_schema` no reporta ninguna clave foránea sin índice, y la suma de filas de las 8 dimensiones más la tabla de hechos es coherente con los 22.670.028 registros de origen.
+**Criterio de aceptación:** `information_schema` no reporta ninguna clave foránea sin índice, y la suma de filas de las 7 dimensiones más la tabla de hechos es coherente con los 13.005.402 registros de plata.
 
 ## 1.2 Responsable: Kerin — Analista de Datos
 
@@ -134,7 +134,7 @@ El sistema debe permitir analizar la composición de los **3.364.090 proveedores
 
 El sistema debe exponer **vistas analíticas** (y, si el rendimiento lo exige, vistas materializadas) normalizadas que sirvan de origen único a Power BI y a los requisitos RF-07 a RF-12, con los nombres de objetos del modelo normalizados y sin duplicar la lógica de agregación.
 
-**Criterio de aceptación:** Power BI se conecta exclusivamente a estas vistas, y cada vista responde en menos de 5 segundos sobre los 22.670.028 registros.
+**Criterio de aceptación:** Power BI se conecta exclusivamente a estas vistas, y cada vista responde en menos de 5 segundos sobre los 13.005.402 registros de plata.
 
 ## 1.3 Responsable: Isabella — QA / Visualización
 
@@ -147,11 +147,13 @@ Además debe reportar:
 - Proporción de nulos por columna (medido: el 100% de los nulos está en las 3 columnas de fecha).
 - Filas con `valor_contrato = 0` (medido: 802.977) y con valor centinela.
 
-**Criterio de aceptación:** `SELECT count(*)` sobre la tabla cargada devuelve exactamente 22.670.028, o la diferencia queda explicada y documentada.
+**Criterio de aceptación:** `SELECT count(*)` sobre la tabla cargada devuelve exactamente **16.025.993** en bronce, y `13.005.402` en plata tras deduplicar; la diferencia (**3.020.591**, 18,85%) queda explicada y documentada.
 
 ### RF-15 — Panel de KPIs globales
 
-Power BI debe mostrar los indicadores principales del proyecto: total de contratos (22.670.028), valor total contratado, número de entidades contratantes (15.928), número de proveedores (2.508.996), número de municipios y número de departamentos (33).
+Power BI debe mostrar los indicadores principales del proyecto: total de contratos (**554.063** contratos distintos, con **13.005.402** versiones registradas en `gold.fact_contrato`), valor total contratado, número de entidades contratantes, número de proveedores, número de municipios y número de departamentos (35 categorías).
+
+> **Cifras pendientes de medir en el corte vigente:** los recuentos de entidades contratantes, proveedores y municipios son `count(distinct ...)` sobre texto libre y **no se pueden proyectar**; los del corte anterior (15.928 y 2.508.996) **no son válidos aquí**. Se miden con la consulta 9.6 de [`volumetria.md`](volumetria.md) una vez construida la capa oro.
 
 **Criterio de aceptación:** cada KPI del tablero coincide con el resultado de la consulta SQL equivalente, verificado documento a documento.
 
@@ -193,7 +195,7 @@ El tablero debe permitir filtrar de forma coherente por **año, departamento, ti
 
 ### RNF-01 — Rendimiento de la descarga
 
-La descarga íntegra de los 22.670.028 registros debe completarse en **menos de 90 minutos** con 4 conexiones en paralelo, frente a los 4 a 10 horas que tomaría el endpoint oficial en monocanal a la velocidad medida de 0,5 – 1,2 MB/s.
+La descarga íntegra de los 16.025.993 registros debe completarse en **menos de 90 minutos** con 4 conexiones en paralelo, frente a los 4 a 10 horas que tomaría el endpoint oficial en monocanal a la velocidad medida de 0,5 – 1,2 MB/s.
 
 **Métrica de verificación:** tiempo transcurrido entre el inicio y el fin de la descarga, y MB/s promedio alcanzado.
 
@@ -213,7 +215,7 @@ El sistema debe operar dentro de los recursos de la máquina objetivo —15,3 GB
 
 ### RNF-04 — Escalabilidad del proceso de carga
 
-El sistema debe soportar el crecimiento del dataset, estimado en **+1,7M a +2,0M registros por año** (5,8× entre 2014 y 2025), sin rehacer el proceso de carga. El particionado por año debe permitir añadir el año 2028 creando **una sola partición nueva**, sin migrar los 22.670.028 registros existentes.
+El sistema debe soportar el crecimiento del dataset, estimado en **+1,7M a +2,0M registros por año** (5,8× entre 2014 y 2025), sin rehacer el proceso de carga. El particionado por año debe permitir añadir el año 2028 creando **una sola partición nueva**, sin migrar los 13.005.402 registros existentes.
 
 **Métrica de verificación:** añadir una partición de prueba y comprobar que las consultas sobre los años anteriores no se degradan.
 
@@ -261,18 +263,18 @@ El código de descarga y de carga debe ser modular, con argumentos claros —lot
 
 | Requisito | Entregable | Evidencia esperada |
 |---|---|---|
-| RF-01, RF-02 | **E4 · ETL** | `etl_carga.md` §Descarga, §Carga + `scripts/descargar_secop.py` |
-| RF-03, RF-04, RF-05 | **E4 · ETL** | `etl_carga.md` §Mapeo de tipos, §Sanidad de fechas, §Tipificación |
-| RF-06 | **E2 · Modelo** | `modelo_relacional.md` §Modelo lógico + `sql/01_esquema.sql` |
-| RF-07 a RF-13 | **E2 · Modelo** | `consultas_ejemplos.md` + vistas en `sql/01_esquema.sql` |
+| RF-01, RF-02 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Descarga, §Carga + `sql/ETL/01_cargar_bronce.sql` |
+| RF-03, RF-04, RF-05 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Mapeo de tipos, §Sanidad de fechas, §Tipificación |
+| RF-06 | **E2 · Modelo** | `modelo_relacional.md` §Modelo lógico + `sql/02_modelo_gold.sql` |
+| RF-07 a RF-13 | **E2 · Modelo** | `consultas_ejemplos.md` + vistas en `sql/02_modelo_gold.sql` |
 | RF-14 | **E1 · Volumetría** + QA | `calidad_datos.md` + reporte de integridad de `docs/plan_Entrega.md` §S5 |
 | RF-15 a RF-18, RF-20 | **E5 · Fotos** | Tablero Power BI + capturas en `docs/imagenes/` |
 | RF-19 | **E1 · Volumetría** §8 | `calidad_datos.md` |
-| RNF-01, RNF-02, RNF-03 | **E4 · ETL** | `etl_carga.md` §Rendimiento + `postgresql.conf` documentado |
+| RNF-01, RNF-02, RNF-03 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Rendimiento + `postgresql.conf` documentado |
 | RNF-04 | **E2 · Modelo** | `decisiones_tecnicas.md` §Particionamiento |
 | RNF-05, RNF-06 | **E1 · Volumetría** | `volumetria.md` §1 (medido vs proyectado) + RNF-04 |
 | RNF-07 | **E4 · ETL** | `instalacion-postgresql-dbeaver.md` §Codificación |
-| RNF-08 | **E5 · Fotos** | Procedimiento de verificación en `etl_carga.md` |
+| RNF-08 | **E5 · Fotos** | Procedimiento de verificación en `sql/ETL/README_ETL.md` |
 | RNF-09 | Todos | `README.md` + `docs/README.md` |
 | RNF-10 | **E4 · ETL** | Argumentos CLI documentados + `.gitignore` de credenciales |
 
@@ -282,7 +284,7 @@ El código de descarga y de carga debe ser modular, con argumentos claros —lot
 
 | Miembro | Rol | Actividades principales | Entregable | Criterio de aceptación |
 |---|---|---|---|---|
-| **José** | ETL / Administrador de PostgreSQL | Implementar la descarga paginada y la carga por lotes (RF-01, RF-02), definir los tipos (RF-03), el saneamiento de fechas (RF-04) y la tipificación de categorías (RF-05), construir el modelo físico (RF-06), documentar Medallion y el ETL (Entregables 3 y 4), afinar índices y particionado (RNF-01 a RNF-04) | `etl_carga.md`, `sql/01_esquema.sql`, `scripts/` | 22.670.028 filas cargadas y verificadas; `count(*)` coincide con la API; consultas < 5 s; ocupa < 46 GB |
+| **José** | ETL / Administrador de PostgreSQL | Implementar la descarga paginada y la carga por lotes (RF-01, RF-02), definir los tipos (RF-03), el saneamiento de fechas (RF-04) y la tipificación de categorías (RF-05), construir el modelo físico (RF-06), documentar Medallion y el ETL (Entregables 3 y 4), afinar índices y particionado (RNF-01 a RNF-04) | `sql/ETL/README_ETL.md`, `sql/02_modelo_gold.sql` | 16.025.993 filas en bronce y 13.005.402 en plata, cargadas y verificadas; `count(*)` coincide con la API; consultas < 5 s; ocupa < 46 GB |
 | **Kerin** | Analista de Datos | Medir y documentar la volumetría (RF-06, RNF-05, RNF-06), construir el modelo conceptual y lógico de la bodega (Entregable 2), escribir las consultas analíticas de RF-07 a RF-13 y las vistas de RF-13 | `volumetria.md`, `modelo_relacional.md`, `consultas_ejemplos.md` | Volumetría con 4 proyecciones y 8 consultas de verificación; modelo con 2 diagramas PlantUML y DDL; ≥ 15 consultas verificadas |
 | **Isabella** | QA / Visualización | Validar la integridad de la carga (RF-14, RNF-08), medir la calidad de datos (RF-19, RNF-07), construir el tablero de Power BI con KPIs, evolución, mapa, concentración y filtros (RF-15 a RF-18, RF-20), y capturar las evidencias gráficas (Entregable 5), documentar la reproducibilidad (RNF-09) | Tablero Power BI, `docs/imagenes/`, `calidad_datos.md` | Los KPIs coinciden con el SQL; las 4 clases de anomalías están cuantificadas; ≥ 5 PNG en alta resolución |
 
@@ -296,7 +298,7 @@ Estos requisitos derivan directamente de la medición del origen y **no admitena
 
 | # | Requisito | Valor medido |
 |---|---|---|
-| D-01 | Volumen mínimo de registros | **22.670.028** (> 10.000.000 exigido) |
+| D-01 | Volumen mínimo de registros | **16.025.993** (> 10.000.000 exigido) |
 | D-02 | Grano de la tabla de hechos | 1 fila = 1 contrato registrado, sin colapsar los 4.621.012 repetidos |
 | D-03 | Fidelidad de columnas | Los 22 campos de origen representados; ningún campo eliminado sin documentar |
 | D-04 | Nulos | Los nulos solo pueden estar en las 3 columnas de fecha; cualquier otro nulo es un error de carga |
@@ -316,7 +318,7 @@ Estos requisitos derivan directamente de la medición del origen y **no admitena
 | [volumetria.md](volumetria.md) | **Entregable 1** — mediciones que respaldan los requisitos de datos D-01 a D-10 |
 | [Plan_Entrega.md](Plan_Entrega.md) | Calendario de las 6 sesiones, roles y actividades por persona |
 | modelo_relacional.md | Entregable 2 — RF-06, RNF-04 |
-| etl_carga.md | Entregables 3 y 4 — RF-01 a RF-05, RNF-01 a RNF-03 |
+| sql/ETL/README_ETL.md | Entregables 3 y 4 — RF-01 a RF-05, RNF-01 a RNF-03 |
 | consultas_ejemplos.md | RF-07 a RF-13 |
 | calidad_datos.md | RF-14, RF-19, RNF-07 |
 | visualizaciones.md + imagenes/ | Entregable 5 — RF-15 a RF-18, RF-20 |

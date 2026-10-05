@@ -210,7 +210,7 @@ $Encabezado = @(
     ''
     ''
     '# ============================================================'
-    '# SECOP Integrado - tuning para carga de 22.670.028 filas'
+    '# SECOP Integrado - tuning para carga de 16.025.993 filas'
     "# Aplicado: $(Get-Date -Format 'dd/MM/yyyy HH:mm') - responsable: Jose (ETL)"
     '# Justificacion de cada valor: docs/instalacion-postgresql-dbeaver.md 3.1'
     '# Este bloque va al final y sobrescribe los valores de fabrica.'
