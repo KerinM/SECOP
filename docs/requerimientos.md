@@ -1,8 +1,9 @@
 # Requerimientos del Proyecto — SECOP Integrado
 
-**Proyecto:** Base de datos relacional de contratación pública de Colombia (SECOP I + SECOP II) construida sobre datos abiertos oficiales.
+**Proyecto:** Data Warehouse de contratación pública de Colombia (SECOP I + SECOP II) sobre datos abiertos oficiales, con arquitectura Medallón en PostgreSQL.
 **Fuente:** [SECOP Integrado](https://www.datos.gov.co/Estad-sticas-Nacionales/SECOP-Integrado/rpmr-utcd) · ID Socrata `rpmr-utcd` · Agencia Nacional de Contratación Pública — Colombia Compra Eficiente.
-**Volumetría:** **16.025.993 registros** en el corte del 29/09/2026 · 16 columnas · **13.005.402 filas** en plata tras deduplicar · detalle y proyecciones en [`volumetria.md`](volumetria.md).
+**Corte vigente:** descargado el 29/09/2026 · contratos firmados 2017-2026 · 10 CSV (uno por año).
+**Volumetría:** **16.025.993** filas en `bronze` → **13.005.402** en `silver` tras eliminar **3.020.591** duplicados exactos (18,85 %). Detalle en [`volumetria.md`](volumetria.md).
 **Motor:** PostgreSQL 18.6 + DBeaver 26.2.0 + Python 3.14 + Power BI Desktop.
 **Entrega:** miércoles 14 de octubre de 2026.
 
@@ -10,304 +11,340 @@
 
 | Miembro | Rol | Responsabilidades |
 |---|---|---|
-| **Kerin** | **Analista de Datos** | Volumetría, modelo conceptual y lógico de la bodega, consultas analíticas de negocio, vistas de soporte |
-| **José** | **ETL / Administrador de PostgreSQL** | Descarga, carga, metodología Medallion, ETL, índices, particionado y tuning |
-| **Isabella** | **QA / Visualización** | Calidad de datos, validación de integridad, tableros en Power BI y evidencias gráficas |
+| **Kerin** | Analista de Datos / arquitecto del modelo | Volumetría, modelo conceptual y lógico, métricas, consultas analíticas y vistas de soporte |
+| **José** | ETL / Administrador de PostgreSQL | Descarga, carga, capas bronce y plata, Medallón, índices, particionado y tuning |
+| **Isabella** | QA / Visualización | Calidad de datos, validación de integridad, tableros en Power BI y evidencias gráficas |
 
-**Reparto:** José → RF-01 a RF-06 y RNF-01 a RNF-04 (10) · Kerin → RF-07 a RF-13 y RNF-05 a RNF-07 (10) · Isabella → RF-14 a RF-20 y RNF-08 a RNF-10 (10).
+**Reparto:** José → RF-01 a RF-06 y RNF-01 a RNF-04 · Kerin → RF-07 a RF-13, RF-21, RF-22 y RNF-05 a RNF-07 · Isabella → RF-14 a RF-20 y RNF-08 a RNF-10.
 
-**Enfoque mixto 50/50:** 10 requisitos técnicos (carga, modelado físico, índices, calidad) y 10 de analítica de negocio (concentración, fraccionamiento, regiones, tiempos de ejecución) + 10 no funcionales.
+> **Cómo se organiza este documento.** Los **requerimientos de negocio (RQ)** dicen qué necesita saber un usuario del dato. Los **requerimientos funcionales (RF)** dicen qué debe hacer el sistema para entregarlo. Los **no funcionales (RNF)** dicen con qué calidad. **El modelo en estrella se deriva de los RQ** (sección 1.2).
 
 ---
 
-# 1. Requisitos funcionales (RF-01 a RF-20)
+# 1. Requerimientos de negocio (RQ)
 
-## 1.1 Responsable: José — ETL / Administrador de PostgreSQL
+## 1.1 Enunciados
 
-### RF-01 — Descarga íntegra y automatizada del dataset
-
-El sistema debe descargar la totalidad de los registros del conjunto SECOP Integrado desde la API oficial de Socrata, sin intervención manual y sin depender de un archivo descargado a mano.
-
-La descarga debe realizarse de forma **paginada y en paralelo** sobre el endpoint `/resource/rpmr-utcd.json?$limit=&$offset=`, porque el endpoint oficial de archivo completo (`/api/views/.../rows.csv?accessType=DOWNLOAD`) no admite compresión ni rangos y entrega ~19,71 GiB a una velocidad medida de 0,5 – 1,2 MB/s (4 a 10 horas de espera).
-
-**Criterio de aceptación:** el total de filas descargadas coincide exactamente con el `count(*)` de la API en la fecha de descarga (**16.025.993** en el corte vigente, 29/09/2026) y el total de bytes descargados es consistente con el promedio de bytes por fila medido en ese corte, ± 5%.
-
-### RF-02 — Carga por lotes con `COPY FROM STDIN`
-
-El sistema debe cargar los datos en PostgreSQL mediante `COPY ... FROM STDIN` en formato CSV, en lotes de **250.000 filas**, con `commit` al final de cada lote, sin generar archivos CSV intermedios en disco.
-
-**Criterio de aceptación:** la carga se completa sin agotar la memoria disponible (15,3 GB) y el proceso es reanudable desde el último lote confirmado.
-
-### RF-03 — Mapeo de tipos a esquema nativo de PostgreSQL
-
-El sistema debe convertir los 22 campos de origen, que llegan todos como `text`, a tipos nativos:
-
-| Origen (text) | Destino PostgreSQL |
+| RQ | Enunciado |
 |---|---|
-| `fecha_de_firma_del_contrato`, `fecha_inicio_ejecuci_n`, `fecha_fin_ejecuci_n` | `date` |
-| `valor_contrato` | `numeric(18,2)` |
-| `documento_proveedor`, `nit_de_la_entidad` | `varchar` (con restricción de solo dígitos y guion) |
-| Las 18 columnas restantes | `text` |
+| RQ01 | Valor y número de contratos por entidad y año |
+| RQ02 | Evolución anual del número de contratos y del valor, 2017-2026 |
+| RQ03 | Porcentaje de contratación directa por entidad |
+| RQ04 | Proveedores con mayor concentración de contratos y valor, y número de entidades con las que contratan |
+| RQ05 | Departamentos y municipios con mayor valor contratado |
+| RQ06 | Duración promedio de los contratos por tipo y modalidad |
+| RQ07 | Distribución de valor y contratos entre entidades del orden nacional y territorial |
+| RQ08 | Valor total y valor promedio por tipo de contrato |
+| RQ09 | Estacionalidad mensual y trimestral de contratos y valor |
+| RQ10 | Proporción del valor contratado con personas naturales y jurídicas |
+| RQ11 | Participación anual de SECOP II frente a SECOP I |
+| RQ12 | Entidades con mayor concentración de contratos atípicos |
+| RQ13 | Estado de los contratos: vigentes, terminados, suspendidos, cedidos y cancelados |
+| RQ14 | Valor gastado (contratado vigente) por entidad, año y tipo |
 
-**Criterio de aceptación:** tras la carga, `information_schema.columns.data_type` refleja los 4 tipos esperados y ninguna columna de fecha quedó como `text`.
+**Sobre RQ13.** El profesor pidió analizar anulaciones. La medición ([`medicion_estados_y_documentos.md`](medicion_estados_y_documentos.md)) muestra que **el estado «ANULADO» no existe** en la fuente: lo más cercano son `CANCELADO` y `TERMINADO ANORMALMENTE…`, **84 filas (0,0006 %)**. Por eso el requisito se formula como estado del contrato.
 
-### RF-04 — Validación y saneamiento de fechas
+**Sobre RQ14.** La fuente **no trae valor pagado ni ejecutado**. «Gastado» es una **definición derivada**: el valor contratado vigente (ver RF-21). Nunca debe presentarse como dinero pagado.
 
-El sistema debe aplicar una función `es_fecha_valida(fecha date)` que marque como inválida y excluya del rango analítico toda fecha:
-- nula (1.767.413 registros sin fecha de firma),
-- con año anterior a 1994 (se detectaron fechas hasta **1899-11-27**),
-- con año posterior a la fecha de corte (se detectaron 106 registros de firma repartidos en 18 años futuros entre 2044 y 2099, con fecha máxima **2099-12-30**, y fechas de fin de ejecución hasta **8201-12-21**).
+## 1.2 Trazabilidad RQ → modelo → RF
 
-**Criterio de aceptación:** la vista analítica no contiene ninguna fila con año fuera de `[1994, 2026]`, y el reporte de descartes indica cuántas filas se excluyeron por cada causa.
+| RQ | Se responde con | RF que lo soporta |
+|---|---|---|
+| RQ01 | `dim_entidad` + `dim_tiempo` | RF-07 |
+| RQ02 | `dim_tiempo` (año) | RF-10 |
+| RQ03 | `dim_entidad` + `es_competitiva` de `dim_clasificacion_contrato` | RF-08 |
+| RQ04 | `dim_proveedor` y `COUNT(DISTINCT sk_entidad)` | RF-07 |
+| RQ05 | `dim_ubicacion` | RF-11 |
+| RQ06 | `duracion_dias` por `tipo_contrato` y `modalidad` | RF-09 |
+| RQ07 | `nivel_entidad` de `dim_entidad` | RF-07 |
+| RQ08 | `tipo_contrato` de `dim_clasificacion_contrato` | RF-07 |
+| RQ09 | mes y trimestre de `dim_tiempo` | RF-10 |
+| RQ10 | `tipo_persona` de `dim_proveedor` | RF-12 |
+| RQ11 | `origen` de `dim_clasificacion_contrato`, por año | RF-10 |
+| RQ12 | `es_atipico` por entidad | RF-07, RF-19 |
+| RQ13 | `agrupacion_estado` | RF-22 |
+| RQ14 | medida `valor_gastado` | RF-21 |
 
-### RF-05 — Normalización y tipificación de las dimensiones categóricas
+## 1.3 Modelo en estrella derivado de los RQ
 
-El sistema debe reducir las categorías duplicadas por capitalización y sinonimia, documentando el mapeo:
+**Grano:** una fila de `gold.fact_contrato` = **una versión de contrato** = una fila de `silver.contratos`. SECOP II publica cada modificación como una fila nueva; el grano es la versión, no el contrato.
 
-| Dimensión | Origen | Destino |
-|---|---:|---:|
-| `tipo_de_contrato` | 33 valores | ~20 |
-| `modalidad_de_contrataci_n` | 38 valores | ~22 |
-| `estado_del_proceso` | 30 valores | ~20 |
-| `departamento_entidad` | 38 valores | **35** (33 departamentos reales + `No Definido` + `Colombia` inválido) |
-| `nivel_entidad` | 7 valores | 4 |
+**5 dimensiones:**
 
-**Criterio de aceptación:** la tabla de mapeo está en el repositorio y ninguna consulta de agrupación por estas dimensiones devuelve variantes que difieran solo en mayúsculas/minúsculas.
+| Dimensión | Atributos principales | Responde |
+|---|---|---|
+| `dim_tiempo` | `sk_tiempo` (entero AAAAMMDD), fecha, año, semestre, trimestre, mes, día, `es_sin_fecha` | RQ02, RQ09 |
+| `dim_entidad` | `sk_entidad`, `codigo_entidad` (clave natural), nit, nombre, nivel | RQ01, RQ03, RQ07 |
+| `dim_ubicacion` | `sk_ubicacion`, departamento, municipio | RQ05 |
+| `dim_proveedor` | `sk_proveedor`, `documento_proveedor` (clave natural), nombre, **`tipo_persona`** | RQ04, RQ10 |
+| `dim_clasificacion_contrato` | `sk_clasificacion`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
 
-### RF-06 — Modelo en estrella con claves primarias y foráneas
+**Hecho:** llaves foráneas a las 5 dimensiones (tiempo con 3 roles: firma, inicio y fin); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
 
-El sistema debe estructurar los datos en un esquema relacional en estrella compuesto por:
-
-- **1 tabla de hechos:** `fact_contrato` con el grano de un contrato registrado.
-- **8 dimensiones.** Cardinalidades **medidas** sobre la carga completa (las projections entre paréntesis):
-  `dim_entidad` (15.928 · 17.183), `dim_proveedor` (2.508.996 · 3.364.090), `dim_tipo_contrato` (31 · 33), `dim_modalidad` (35 · 38), `dim_estado` (29 · 30), `dim_origen` (2 · 2), `dim_tipo_documento` (18 · 19), `dim_tiempo` (47.847 días, 1900-01-01 a 2030-12-31 · ~9.960).
-- Claves **primarias** sustitutas `integer` generadas y **foráneas** con `REFERENCES` explícitas.
-- `fact_contrato` **particionada por RANGE** sobre el año de `fecha_firma`, con **30 particiones**: cuarentena `pre2000` (1900-01-01 → 2000-01-01), 28 anuales 2000-2027, y una por defecto.
-
-> **Desviación respecto a la especificación original, aceptada durante la construcción.** Se pidieron 9 dimensiones incluyendo `dim_ubicacion` (1.131 municipios). Se implementaron **8**: `dim_ubicacion` se eliminó porque municipio y departamento ya son atributos de `dim_entidad`, y mantenerla duplicaba el dato sin aportar granularidad. `dim_tiempo` se extendió a 1900-2030 (no 2000-2026) porque `fecha_firma` necesita que exista la fecha centinela `1900-01-01` para las 1.779.534 filas sin fecha válida. El motivo completo está en `decisiones_tecnicas.md`.
-
-**Criterio de aceptación:** `information_schema` no reporta ninguna clave foránea sin índice, y la suma de filas de las 7 dimensiones más la tabla de hechos es coherente con los 13.005.402 registros de plata.
-
-## 1.2 Responsable: Kerin — Analista de Datos
-
-### RF-07 — Consultas analíticas de negocio sobre concentration de mercado
-
-El sistema debe permitir medir la **concentración del gasto público** por entidad contratante y por proveedor, mediante ranking, porcentaje del total y el **índice HHI** (Herfindahl-Hirschman) de concentración por departamento y por tipo de contrato.
-
-Contexto de la medición: el departamento con mayor volumen es Antioquia con 4.099.174 registros (18,1%) y el mayor es Bogotá con 5.649.612 sumando sus dos variantes (24,9%).
-
-**Criterio de aceptación:** las consultas devuelven el top 20 de entidades y el top 20 de proveedores por valor contratado, con su porcentaje acumulado y el HHI calculado.
-
-### RF-08 — Detección de fraccionamiento de contratos
-
-El sistema debe permitir identificar posibles casos de **fraccionamiento**, es decir, una misma entidad contratante que divide un valor en varios contratos por debajo del umbral de Contratación Mínima Cuantía, o un mismo proveedor que recibe múltiples contratos sospechosamente similares de una misma entidad en una ventana de tiempo corta.
-
-**Criterio de aceptación:** la consulta devuelve el listado de entidades y proveedores con mayor número de contratos sub-mínima cuantía en ventanas de 30 y 90 días, con su valor agregado.
-
-### RF-09 — Análisis de tiempos de ejecución
-
-El sistema debe permitir analizar la **duración real de los contratos** mediante `fecha_fin_ejecuci_n - fecha_inicio_ejecuci_n`, y detectar las anomalías: 1.521.879 contratos sin fecha de fin, contratos con fecha de fin anterior a la de inicio, y contratos con duración superior a 5 años.
-
-**Criterio de aceptación:** el sistema reporta duración promedio, mediana y percentiles 25/50/75/95 por tipo de contrato, excluyendo los registros que RF-04 marcó como inválidos.
-
-### RF-10 — Análisis de evolución temporal por modalidad y tipo
-
-El sistema debe permitir analizar la evolución de la contratación por **año, trimestre y mes**, cruzando `fecha_de_firma_del_contrato` con `modalidad_de_contrataci_n` y `tipo_de_contrato`, y calcular tasas de variación interanual.
-
-Contexto: el año pico es **2025 con 2.118.036 contratos**; el dataset **no está ordenado cronológicamente**, por lo que el análisis debe filtrar por rango y no confiar en el orden de carga.
-
-**Criterio de aceptación:** la serie anual 2000–2026 devuelve 27 años con conteo y valor, y la tasa de variación se calcula sobre el año inmediatamente anterior presente en la serie.
-
-### RF-11 — Análisis geográfico por departamento y municipio
-
-El sistema debe permitir agregar número de contratos y valor contratado por `departamento_entidad` y `municipio_entidad`, **con los 35 valores ya normalizados** según RF-05, para que la visualización geográfica no duplique Bogotá, Norte de Santander ni el "sin departamento".
-
-**Criterio de aceptación:** la consulta devuelve 33 filas de departamento (más la categoría "No Definido") y la suma de los 1.131 municipios cuadra con el total nacional.
-
-### RF-12 — Perfilamiento de contratistas y su tipo documental
-
-El sistema debe permitir analizar la composición de los **3.364.090 proveedores distintos** por `tipo_documento_proveedor` (19 valores de origen): cédula de ciudadanía, NIT de persona jurídica, NIT de persona natural, visa, pasaporte, etc., identificando personas naturales frente a personas jurídicas.
-
-**Criterio de aceptación:** la consulta devuelve el conteo y el valor contratado por cada tipo documental, resaltando la proporción de contratos con `documento_proveedor = 'NO DEFINIDO'`.
-
-### RF-13 — Vistas de consulta reutilizables
-
-El sistema debe exponer **vistas analíticas** (y, si el rendimiento lo exige, vistas materializadas) normalizadas que sirvan de origen único a Power BI y a los requisitos RF-07 a RF-12, con los nombres de objetos del modelo normalizados y sin duplicar la lógica de agregación.
-
-**Criterio de aceptación:** Power BI se conecta exclusivamente a estas vistas, y cada vista responde en menos de 5 segundos sobre los 13.005.402 registros de plata.
-
-## 1.3 Responsable: Isabella — QA / Visualización
-
-### RF-14 — Verificación de integridad de la carga
-
-El sistema debe comparar el conteo cargado contra el conteo de la API oficial y reportar discrepancias. La verificación debe considerar que **la metadata del portal está desfasada en 1.869.810 registros**: el conteo de referencia es el de la API en vivo, no el de la ficha web.
-
-Además debe reportar:
-- Filas que comparten `numero_del_contrato` (medido: **4.621.012 filas, 20,38%**).
-- Proporción de nulos por columna (medido: el 100% de los nulos está en las 3 columnas de fecha).
-- Filas con `valor_contrato = 0` (medido: 802.977) y con valor centinela.
-
-**Criterio de aceptación:** `SELECT count(*)` sobre la tabla cargada devuelve exactamente **16.025.993** en bronce, y `13.005.402` en plata tras deduplicar; la diferencia (**3.020.591**, 18,85%) queda explicada y documentada.
-
-### RF-15 — Panel de KPIs globales
-
-Power BI debe mostrar los indicadores principales del proyecto: total de contratos (**554.063** contratos distintos, con **13.005.402** versiones registradas en `gold.fact_contrato`), valor total contratado, número de entidades contratantes, número de proveedores, número de municipios y número de departamentos (35 categorías).
-
-> **Cifras pendientes de medir en el corte vigente:** los recuentos de entidades contratantes, proveedores y municipios son `count(distinct ...)` sobre texto libre y **no se pueden proyectar**; los del corte anterior (15.928 y 2.508.996) **no son válidos aquí**. Se miden con la consulta 9.6 de [`volumetria.md`](volumetria.md) una vez construida la capa oro.
-
-**Criterio de aceptación:** cada KPI del tablero coincide con el resultado de la consulta SQL equivalente, verificado documento a documento.
-
-### RF-16 — Tablero de evolución temporal
-
-Power BI debe visualizar la evolución de la contratación por **año y trimestre**, desglosada por tipo de contrato y por modalidad, con línea de tendencia y su tasa de variación interanual.
-
-**Criterio de aceptación:** el gráfico cubre de 2000 a 2026 y la línea de tendencia corresponde a la serie de RF-10.
-
-### RF-17 — Mapa geográfico de la contratación
-
-Power BI debe representar en un mapa el número de contratos y el valor contratado por **departamento y por municipio**, utilizando la codificación de la dimensión ya normalizada, y resaltando la participación de Bogotá y Antioquia frente al total nacional.
-
-**Criterio de aceptación:** el mapa muestra 33 departamentos sin duplicar Bogotá, y el drill-down a municipio funciona para al menos los 10 municipios con mayor valor.
-
-### RF-18 — Panel de concentración y proveedor
-
-Power BI debe presentar el **top 20 de contratistas por valor contratado**, su participación porcentual acumulada, el HHI calculado, y el perfil de los proveedores por tipo documental (persona natural vs jurídica), resolviendo RF-07 y RF-12.
-
-**Criterio de aceptación:** el ranking del tablero es idéntico al que devuelve la consulta de RF-07.
-
-### RF-19 — Reporte de calidad de datos
-
-El sistema debe generar un reporte visual de las cuatro clases de anomalías medidas en la volumetría: (1) fechas imposibles — 106 registros de firma en 18 años futuros entre 2044 y 2099 —, (2) duplicados de número de contrato (4.621.012 filas), (3) inconsistencias de mayúsculas y minúsculas, y (4) valores cero y centinela, con su cantidad y porcentaje sobre el total.
-
-**Criterio de aceptación:** el reporte cubre las 4 clases y el total de registros afectados está cuantificado.
-
-### RF-20 — Filtros interactivos y reproducibilidad de las capturas
-
-El tablero debe permitir filtrar de forma coherente por **año, departamento, tipo de contrato, modalidad, estado y nivel de entidad**, manteniendo la coherencia entre todas las páginas, y cada vista filtrada debe ser **reproducible como captura PNG** en alta resolución para el Entregable 5.
-
-**Criterio de aceptación:** existen al menos 5 capturas PNG de alta resolución en `docs/imagenes/`, cada una rotulada con los filtros aplicados, que corresponden a las páginas del tablero.
+> **Pendiente de confirmar con el equipo:** el rango de `dim_tiempo` (2000-2060, clave entera AAAAMMDD con el registro -1 «SIN FECHA», igual que en las diapositivas) y el nombre `dim_clasificacion_contrato`.
 
 ---
 
-# 2. Requisitos no funcionales (RNF-01 a RNF-10)
+# 2. Requisitos funcionales (RF)
 
 ## 2.1 Responsable: José — ETL / Administrador de PostgreSQL
 
-### RNF-01 — Rendimiento de la descarga
+### RF-01 — Descarga íntegra del dataset
 
-La descarga íntegra de los 16.025.993 registros debe completarse en **menos de 90 minutos** con 4 conexiones en paralelo, frente a los 4 a 10 horas que tomaría el endpoint oficial en monocanal a la velocidad medida de 0,5 – 1,2 MB/s.
+El sistema debe obtener la totalidad de los contratos firmados 2017-2026 desde la API oficial de Socrata, en **10 archivos CSV, uno por año**, sin depender de la ficha web del portal, cuyo conteo está desfasado.
 
-**Métrica de verificación:** tiempo transcurrido entre el inicio y el fin de la descarga, y MB/s promedio alcanzado.
+**Criterio de aceptación:** `count(*)` sobre `bronze.secop_raw` = **16.025.993** y cada archivo coincide con su conteo (2017 = 1.498.976 filas, … 2026 = 1.291.923).
 
-### RNF-02 — Latencia de las consultas
+### RF-02 — Carga por `COPY` y trazabilidad
 
-Las consultas analíticas sobre la tabla de hechos con índices deben devolver resultados en **menos de 5 segundos**; las consultas particionadas por año, en **menos de 1 segundo**.
+El sistema debe cargar los 10 CSV en `bronze.secop_raw` con `COPY`, todo en texto, para que ninguna fila se rechace por tipo. Cada fila lleva `id_fila` (identificador correlativo), `fecha_carga` y `archivo_origen`.
 
-**Métrica de verificación:** `EXPLAIN ANALYZE` de cada consulta de RF-07 a RF-13 y de las vistas de RF-13.
+**Criterio de aceptación:** los 10 archivos quedan con rangos de `id_fila` consecutivos, terminando en 16.025.993, y la bitácora `bronze.log_cargas` tiene una fila por archivo.
 
-### RNF-03 — Consumo eficiente de recursos
+### RF-03 — Mapeo de tipos a esquema nativo
 
-El sistema debe operar dentro de los recursos de la máquina objetivo —15,3 GB de RAM, 12 núcleos, 129 GB de disco libre— ocupando **menos de 46 GB de disco** en el peor caso (19,71 GiB del CSV más 26 GiB de la base de datos), y debe configurarse `postgresql.conf` con `shared_buffers = 4GB`, `work_mem = 64MB`, `maintenance_work_mem = 1GB` y `effective_cache_size = 10GB`.
+La capa plata debe convertir las columnas de texto a tipos nativos: fechas a `date`, `valor_contrato` a `numeric(18,2)` y el resto a `text`; NIT y documentos quedan solo con dígitos.
 
-**Métrica de verificación:** espacio ocupado en disco tras la carga y consumo de memoria durante la carga y las consultas.
+**Criterio de aceptación:** `information_schema.columns` en `silver.contratos` refleja los tipos esperados y ninguna fecha queda como `text`.
+
+### RF-04 — Validación y saneamiento de fechas
+
+La regla R4 debe pasar a `NULL` y marcar con `flag_fecha_invalida` toda fecha de firma anterior a 2000-01-01 o posterior a la fecha de descarga, y toda fecha de inicio o fin fuera de 2000-2060. Las fechas incoherentes entre sí (fin anterior a inicio) se **marcan, no se corrigen**.
+
+**Criterio de aceptación:** la prueba 1 de `05_qa_silver.sql` da 0 en las tres pruebas de rango de fechas y en «fin antes del inicio sin marcar».
+
+### RF-05 — Normalización, homologación y deduplicación
+
+El sistema debe:
+
+1. Normalizar los textos (R1: mayúsculas, sin tildes, sin espacios dobles ni barras sueltas) y convertir los nulos disfrazados en `NULL` (R2).
+2. Unificar nombres equivalentes con el catálogo `silver.homologacion`, de 17 reglas (R3).
+3. **Eliminar los duplicados exactos (R5) conservando el registro con el estado de mayor avance del ciclo de vida** (ranking de RF-22), y no el de menor `id_fila`. El dataset no trae fecha de modificación, de modo que `id_fila` no permite decidir el estado vigente. En bronce hay **1.169.445 grupos** idénticos en contrato, proceso, proveedor, valor y fecha de firma con estados distintos.
+
+**Criterio de aceptación:** plata sin duplicados (prueba 2 de QA = 0) y, para los grupos con estados distintos, la fila conservada es la de mayor rango.
+
+### RF-06 — Modelo en estrella con claves primarias y foráneas
+
+El sistema debe construir el modelo de la sección 1.3 a partir de `silver.contratos`:
+
+- **1 tabla de hechos** `fact_contrato` y **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_clasificacion_contrato`).
+- Claves sustitutas enteras en las 5 dimensiones, claves naturales con `UNIQUE`, y llaves foráneas explícitas.
+- Registro **-1 «NO REGISTRA»** en cada dimensión; en `dim_tiempo`, «SIN FECHA».
+- `fact_contrato` particionada por rango sobre `sk_fecha_firma`, **13 particiones**. La clave primaria es compuesta (`sk_fecha_firma`, `id_fila`) porque PostgreSQL exige que incluya la clave de partición.
+- `id_fila` heredado de plata y bronce, para auditar una cifra hasta el CSV de origen.
+- **No existe `dim_tipo_documento`**: el tipo documental no se modela (se resume en `tipo_persona`).
+
+**Criterio de aceptación:** 0 filas huérfanas por cada FK, `count(*)` de `fact_contrato` = 13.005.402, 13 particiones, todas en el esquema `gold`.
 
 ## 2.2 Responsable: Kerin — Analista de Datos
 
-### RNF-04 — Escalabilidad del proceso de carga
+### RF-07 — Concentración y distribución del contrato público
 
-El sistema debe soportar el crecimiento del dataset, estimado en **+1,7M a +2,0M registros por año** (5,8× entre 2014 y 2025), sin rehacer el proceso de carga. El particionado por año debe permitir añadir el año 2028 creando **una sola partición nueva**, sin migrar los 13.005.402 registros existentes.
+El sistema debe permitir medir valor y número de contratos por entidad y año (RQ01), la concentración por proveedor con ranking, porcentaje acumulado, HHI y número de entidades con las que contrata (RQ04), la distribución entre nivel nacional y territorial (RQ07), valor total y promedio por tipo de contrato (RQ08) y las entidades con más contratos atípicos (RQ12).
 
-**Métrica de verificación:** añadir una partición de prueba y comprobar que las consultas sobre los años anteriores no se degradan.
+**Criterio de aceptación:** las consultas devuelven el top 20 de entidades y de proveedores con su porcentaje acumulado. Todo valor monetario usa `valor_ajustado` excluyendo `es_atipico`.
 
-### RNF-05 — Fidelidad de los datos de origen
+### RF-08 — Contratación directa y mínima cuantía
 
-La carga debe preservar la totalidad de la información del origen: los **22 campos** deben estar representados, la codificación debe ser **UTF-8** sin pérdida de tildes, ñ y símbolos (el dataset contiene textos con caracteres como "Fonaguacute" y "Lntilde" correctamente codificados), y la suma de `valor_contrato` debe cuadrar con el total del origen salvo los valores centinela documentados.
+El sistema debe calcular, por entidad, el porcentaje de contratos por modalidades no competitivas (`es_competitiva = false`) (RQ03) y permitir detectar posibles fraccionamientos: entidades con muchos contratos de mínima cuantía al mismo proveedor en ventanas de 30 y 90 días.
 
-**Métrica de verificación:** suma de `valor_contrato` por año contra la consulta equivalente a la API, con diferencia de solo los valores cero y centinela.
+**Criterio de aceptación:** la consulta devuelve el ranking de entidades por porcentaje de contratación directa y el listado de entidad-proveedor con mayor número de contratos de mínima cuantía por ventana.
 
-### RNF-06 — Trazabilidad y reproducibilidad de la documentación
+### RF-09 — Duración de los contratos
 
-Toda cifra declarada en la documentación debe ser **verificable y reproducible**: o bien proviene de una consulta a la API o a la base de datos, o bien es una proyección con la fórmula explícita y la fuente de sus parámetros. Ninguna cifra puede estimarse sin justificación.
+El sistema debe analizar `duracion_dias` por tipo de contrato y modalidad (RQ06), con promedio, mediana y percentiles, excluyendo los contratos con `es_fechas_incoherentes` o `es_fecha_invalida`.
 
-**Métrica de verificación:** cada tabla de la volumetría y de los análisis indica si es **medida** o **proyectada**, y las proyecciones incluyen el método de cálculo.
+**Criterio de aceptación:** el reporte devuelve promedio, mediana y percentiles 25/50/75/95 por tipo y por modalidad.
+
+### RF-10 — Evolución y estacionalidad
+
+El sistema debe analizar la serie anual de contratos y valor 2017-2026 con variación interanual (RQ02), la estacionalidad mensual y trimestral (RQ09) y la participación anual de SECOP II frente a SECOP I (RQ11). **El año 2026 es parcial** (llega hasta el 29/09/2026) y debe señalarse como tal en toda comparación.
+
+**Criterio de aceptación:** la serie devuelve 10 años, la variación se calcula contra el año anterior presente, y 2026 aparece marcado como parcial.
+
+### RF-11 — Análisis geográfico
+
+El sistema debe agregar contratos y valor por departamento y municipio (RQ05) usando `dim_ubicacion`, con los nombres ya normalizados por R1 y R3 (Bogotá en una sola categoría).
+
+**Criterio de aceptación:** la suma por departamento cuadra con el total nacional y Bogotá D.C. aparece una sola vez.
+
+### RF-12 — Perfil de proveedores por tipo de persona
+
+El sistema debe clasificar cada proveedor como `NATURAL`, `JURIDICA` o `NO CLASIFICADO` (`tipo_persona`) y calcular la proporción del valor contratado con cada grupo (RQ10).
+
+Regla de clasificación (**definición del proyecto, no medición**):
+
+| tipo_persona | Criterio |
+|---|---|
+| NATURAL | Cédula de ciudadanía, NIT de persona natural, cédula de extranjería, pasaporte, tarjeta de identidad, registro civil, NUIP, carné diplomático, permiso por protección temporal, permiso especial de permanencia |
+| JURIDICA | NIT de persona jurídica, sociedades extranjeras, número de fideicomiso, y `NIT` genérico con documento de 9 dígitos que empieza por 8 o 9 (heurística que cubre el 94,5 % de los `NIT` genéricos) |
+| NO CLASIFICADO | NIT de extranjería, otro, nulos y `NIT` genérico que no cumple la heurística |
+
+**Criterio de aceptación:** `NATURAL` 10.372.323 + `JURIDICA` 1.909.481 + `NO CLASIFICADO` 723.598 = 13.005.402 filas; la suma de proporciones del valor es 100 %.
+
+### RF-13 — Vistas de consumo reutilizables
+
+El sistema debe exponer vistas (y vistas materializadas si el rendimiento lo exige) que sean el origen único de Power BI y de RF-07 a RF-12, sin duplicar la lógica de agregación. La vista de consumo excluye atípicos y fechas inválidas, para que el filtro no dependa del tablero.
+
+**Criterio de aceptación:** Power BI se conecta solo a esas vistas y cada una responde en menos de 5 segundos.
+
+### RF-21 — Métrica `valor_gastado`
+
+El sistema debe calcular `valor_gastado` en cada fila del hecho. Es el **valor contratado vigente**:
+
+- Es igual a `valor_ajustado` cuando `agrupacion_estado` es distinta de `PRECONTRACTUAL` y de `CANCELADO` **y** `es_atipico = false`.
+- Es **0** en cualquier otro caso (así el `SUM` no necesita filtros). *Pendiente de confirmar: 0 frente a NULL.*
+
+La fuente **no trae valor pagado ni ejecutado**; esta métrica es una definición derivada y no debe presentarse como dinero pagado. Debe confirmarse su definición con el profesor.
+
+**Criterio de aceptación:** `SUM(valor_gastado)` ≤ `SUM(valor_ajustado)` filtrado por `NOT es_atipico`, y la diferencia equivale exactamente al valor de las filas precontractuales y canceladas.
+
+### RF-22 — Estado del contrato y ciclo de vida
+
+El sistema debe asignar a cada estado de la fuente una `agrupacion_estado` según el siguiente ranking (**regla de negocio provisional, no medición**), que RF-05 usa para decidir qué fila conserva:
+
+| Rango | Agrupación | Estados |
+|---:|---|---|
+| 1 | PRECONTRACTUAL | BORRADOR, EN APROBACION, ENVIADO PROVEEDOR, CONVOCADO, ADJUDICADO |
+| 2 | INICIO | APROBADO, ACTIVO, CELEBRADO |
+| 3 | VIGENTE | EN EJECUCION, MODIFICADO, PRORROGADO |
+| 4 | SUSPENDIDO / CEDIDO | SUSPENDIDO, CEDIDO |
+| 5 | TERMINADO | TERMINADO, TERMINADO SIN LIQUIDAR, LIQUIDADO |
+| 6 | CERRADO | CERRADO |
+| 7 | CANCELADO | CANCELADO, TERMINADO ANORMALMENTE… (patrón `TERMINADO ANORMALMENTE%`) |
+
+Está respaldado por los datos que `CERRADO` > `EN EJECUCION` y `MODIFICADO`, y `TERMINADO` > ambos. **El orden de SUSPENDIDO y CEDIDO es juicio del equipo, sin medición.** SECOP I y SECOP II usan vocabularios distintos y el mapeo los une en una sola escala.
+
+**Criterio de aceptación:** ningún estado de `silver.contratos` queda sin agrupación (salvo el nulo, que va a `NO REGISTRA`) y el RQ13 se responde con un `GROUP BY agrupacion_estado`.
 
 ## 2.3 Responsable: Isabella — QA / Visualización
 
+### RF-14 — Verificación de integridad de la carga
+
+El sistema debe comparar el conteo cargado contra la fuente y reportar discrepancias, sin usar el conteo de la ficha web.
+
+**Criterio de aceptación:** `count(*)` = **16.025.993** en bronce, **13.005.402** en plata y **13.005.402** en `fact_contrato`; la diferencia bronce-plata (3.020.591) queda explicada por R5.
+
+### RF-15 — Panel de KPIs globales
+
+Power BI debe mostrar total de versiones de contrato (13.005.402), total de contratos distintos (554.063 de ellos con versiones), valor contratado, valor gastado, número de entidades, de proveedores y de departamentos.
+
+> Los recuentos de entidades, proveedores y municipios son `count(distinct …)` sobre texto libre y **se miden después de construir oro**; no se estiman.
+
+**Criterio de aceptación:** cada KPI coincide con su consulta SQL equivalente.
+
+### RF-16 — Tablero de evolución temporal
+
+Power BI debe visualizar la evolución 2017-2026 por año, trimestre y mes, por tipo de contrato y modalidad, con variación interanual. **2026 se marca como parcial.**
+
+**Criterio de aceptación:** el gráfico cubre 2017-2026 y coincide con la serie de RF-10.
+
+### RF-17 — Mapa geográfico
+
+Power BI debe representar contratos y valor por departamento y municipio, con drill-down y sin duplicar Bogotá.
+
+**Criterio de aceptación:** el mapa coincide con la agregación de RF-11.
+
+### RF-18 — Panel de concentración y proveedores
+
+Power BI debe presentar el top 20 de proveedores por valor, su participación acumulada, el HHI y la proporción de valor por `tipo_persona`.
+
+**Criterio de aceptación:** el ranking es idéntico al de RF-07 y las proporciones al de RF-12.
+
+### RF-19 — Reporte de calidad de datos
+
+El sistema debe reportar, con cantidad y porcentaje, las anomalías de la fuente: fechas imposibles (R4), duplicados eliminados (R5), valores en cero y de relleno (R6), valores repetidos y versiones (R7, R7b) y valores atípicos y extremos (R9, R9b).
+
+**Criterio de aceptación:** el reporte cubre todas las reglas y las cifras coinciden con `05_qa_silver.sql` y la validación independiente en Python (42/42).
+
+### RF-20 — Filtros interactivos y capturas
+
+El tablero debe filtrar de forma coherente por año, departamento, tipo de contrato, modalidad, estado y nivel de entidad en todas las páginas, y cada vista debe reproducirse como captura PNG de alta resolución.
+
+**Criterio de aceptación:** existen al menos 5 capturas PNG en `docs/imagenes/`, rotuladas con los filtros aplicados.
+
+---
+
+# 3. Requisitos no funcionales (RNF)
+
+## 3.1 Responsable: José
+
+### RNF-01 — Rendimiento de la descarga
+La descarga de los 10 archivos debe completarse en menos de 90 minutos con conexiones en paralelo, frente a las 4-10 horas del endpoint de archivo completo.
+**Verificación:** tiempo total y MB/s promedio.
+
+### RNF-02 — Latencia de las consultas
+Las consultas analíticas con índices deben responder en menos de 5 segundos; las limitadas a un año, en menos de 1 segundo.
+**Verificación:** `EXPLAIN ANALYZE` de cada consulta de RF-07 a RF-13.
+
+### RNF-03 — Consumo eficiente de recursos
+El sistema debe operar dentro de la máquina objetivo (15,3 GB de RAM, 12 núcleos, 129 GB de disco libre), con `shared_buffers = 4GB`, `work_mem = 64MB`, `maintenance_work_mem = 1GB` y `effective_cache_size = 10GB`.
+**Verificación:** espacio en disco tras la carga y uso de memoria en carga y consultas.
+
+### RNF-04 — Escalabilidad
+El particionado por `sk_fecha_firma` debe permitir añadir un año nuevo con **una sola partición**, sin migrar los 13.005.402 registros existentes. Se espera un crecimiento de unos 1,7 a 2,0 millones de filas por año (proyección, no medición).
+**Verificación:** añadir una partición de prueba sin degradar las consultas de años anteriores.
+
+## 3.2 Responsable: Kerin
+
+### RNF-05 — Fidelidad y separación entre dato y regla
+La carga debe preservar la totalidad del origen en bronce, en UTF-8. Toda cifra derivada (`valor_ajustado`, `valor_gastado`, `tipo_persona`, `agrupacion_estado` y su ranking) debe documentarse como **regla de negocio**, distinguida de las mediciones. `valor_contrato` se conserva sin modificar.
+**Verificación:** cada definición derivada tiene su regla escrita y `valor_contrato` coincide con bronce.
+
+### RNF-06 — Trazabilidad y reproducibilidad
+Toda cifra de la documentación debe ser reproducible: proviene de una consulta, o es una proyección con su fórmula. Cada tabla indica si es **medida**, **definida** (regla) o **proyectada**. Cada fila de oro se rastrea hasta el CSV de origen por `id_fila`.
+**Verificación:** el JOIN `gold → silver → bronze` por `id_fila` devuelve la fila original.
+
 ### RNF-07 — Codificación y compatibilidad regional
+La base se crea en UTF-8 con intercalación `es-CO-x-icu`. El texto dañado en el origen (la `ñ` llega como `���`) no se repara y se documenta como limitación.
+**Verificación:** consulta con acentos y eñes sin errores de codificación.
 
-La base de datos debe crearse con codificación **UTF-8** y con configuración regional coherente con Colombia, y la documentación debe distinguir correctamente los caracteres acentuados en todas las consultas de ejemplo.
+## 3.3 Responsable: Isabella
 
-**Métrica de verificación:** crear la base de datos y ejecutar una consulta de prueba con acentos, ñ y diéresis, comprobando que no hay errores de codificación.
+### RNF-08 — Verificación automatizada
+Debe existir un procedimiento ejecutable tras cada carga que compruebe conteos por capa, vacíos por columna, duplicados, rango de fechas, huérfanos por FK y tamaño por tabla.
+**Verificación:** `05_qa_silver.sql` (42 pruebas) y `06_validacion_python.py` sin pruebas en REVISAR.
 
-### RNF-08 — Verificación automatizada de integridad
+### RNF-09 — Documentación reproducible
+El README y `docs/` deben permitir a un tercero montar el entorno completo siguiendo los pasos, e interpretar el tablero y las capturas.
+**Verificación:** una persona ajena ejecuta una consulta de cada requisito funcional.
 
-El sistema debe incluir un procedimiento de verificación ejecutable tras cada carga, que compruebe como mínimo: conteo de filas, proporción de nulos por columna, duplicados de clave natural, distribución por origen, rango de fechas válido y tamaño real por tabla e índice.
-
-**Métrica de verificación:** el procedimiento se ejecuta sin error y produce un reporte con los valores medidos que se contrastan contra las proyecciones de la volumetría.
-
-### RNF-09 — Usabilidad y documentación reproducible
-
-La documentación del proyecto (README más `docs/`) debe permitir que **un tercero sin conocimiento previo** monte el entorno completo —PostgreSQL, DBeaver, descarga, carga, índices y consultas— siguiendo los pasos documentados, y debe permitir interpretar correctamente el tablero de Power BI y las capturas del Entregable 5.
-
-**Métrica de verificación:** una persona del equipo sigue la guía sin asistencia y logra ejecutar al menos una consulta de cada requisito funcional.
-
-### RNF-10 — Mantenibilidad
-
-El código de descarga y de carga debe ser modular, con argumentos claros —lote, número de conexiones, base de datos, tabla destino, tamaño de lote—, de modo que permita actualizar los datos mensualmente y refrescar el tablero de Power BI sin cambios de código. Las credenciales deben leerse de variables de entorno y **nunca** escribirse en el repositorio.
-
-**Métrica de verificación:** cambiar el tamaño de lote y el número de conexiones se hace solo con argumentos, y ninguna contraseña está versionada.
+### RNF-10 — Mantenibilidad y seguridad
+El código debe aceptar argumentos (lote, base, tabla) y leer credenciales solo de variables de entorno, sin versionar contraseñas. `secop_lectura` ve únicamente `gold`.
+**Verificación:** ninguna clave en el repositorio y `has_schema_privilege('secop_lectura','silver','USAGE')` = false.
 
 ---
 
-# 3. Trazabilidad: requisito → entregable → evidencia
+# 4. Trazabilidad: requisito → entregable → evidencia
 
-| Requisito | Entregable | Evidencia esperada |
+| Requisito | Entregable | Evidencia |
 |---|---|---|
-| RF-01, RF-02 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Descarga, §Carga + `sql/ETL/01_cargar_bronce.sql` |
-| RF-03, RF-04, RF-05 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Mapeo de tipos, §Sanidad de fechas, §Tipificación |
-| RF-06 | **E2 · Modelo** | `modelo_relacional.md` §Modelo lógico + `sql/02_modelo_gold.sql` |
-| RF-07 a RF-13 | **E2 · Modelo** | `consultas_ejemplos.md` + vistas en `sql/02_modelo_gold.sql` |
-| RF-14 | **E1 · Volumetría** + QA | `calidad_datos.md` + reporte de integridad de `docs/plan_Entrega.md` §S5 |
-| RF-15 a RF-18, RF-20 | **E5 · Fotos** | Tablero Power BI + capturas en `docs/imagenes/` |
-| RF-19 | **E1 · Volumetría** §8 | `calidad_datos.md` |
-| RNF-01, RNF-02, RNF-03 | **E4 · ETL** | `sql/ETL/README_ETL.md` §Rendimiento + `postgresql.conf` documentado |
-| RNF-04 | **E2 · Modelo** | `decisiones_tecnicas.md` §Particionamiento |
-| RNF-05, RNF-06 | **E1 · Volumetría** | `volumetria.md` §1 (medido vs proyectado) + RNF-04 |
-| RNF-07 | **E4 · ETL** | `instalacion-postgresql-dbeaver.md` §Codificación |
-| RNF-08 | **E5 · Fotos** | Procedimiento de verificación en `sql/ETL/README_ETL.md` |
-| RNF-09 | Todos | `README.md` + `docs/README.md` |
-| RNF-10 | **E4 · ETL** | Argumentos CLI documentados + `.gitignore` de credenciales |
+| RQ01-RQ14 | **E2 · Modelo** | Sección 1 de este documento |
+| RF-01 a RF-05, RNF-01 a RNF-03 | **E3 y E4 · Medallón y ETL** | `sql/ETL/README_ETL.md`, `sql/ETL/*.sql` |
+| RF-06, RF-21, RF-22 | **E2 · Modelo** | `modelo_relacional.md`, `sql/02_modelo_gold.sql` |
+| RF-07 a RF-13 | **E2 · Modelo** | `consultas_ejemplos.md`, `sql/04_vistas.sql` |
+| RF-14, RF-19, RNF-08 | **E1 · Volumetría** + QA | `sql/ETL/resultado_qa.md`, `sql/ETL/reporte_validacion_python.md` |
+| RF-15 a RF-18, RF-20 | **E5 · Fotos** | Tablero y `docs/imagenes/` |
+| RNF-04 | **E2 · Modelo** | `decisiones_tecnicas.md` §Particionado |
+| RNF-05, RNF-06 | **E1 · Volumetría** | `volumetria.md`, `medicion_estados_y_documentos.md` |
+| RNF-07, RNF-09, RNF-10 | **E4 · ETL** | `instalacion-postgresql-dbeaver.md`, `.gitignore` |
 
 ---
 
-# 4. Roles, actividades y definición de "hecho"
+# 5. Requisitos de datos
 
-| Miembro | Rol | Actividades principales | Entregable | Criterio de aceptación |
-|---|---|---|---|---|
-| **José** | ETL / Administrador de PostgreSQL | Implementar la descarga paginada y la carga por lotes (RF-01, RF-02), definir los tipos (RF-03), el saneamiento de fechas (RF-04) y la tipificación de categorías (RF-05), construir el modelo físico (RF-06), documentar Medallion y el ETL (Entregables 3 y 4), afinar índices y particionado (RNF-01 a RNF-04) | `sql/ETL/README_ETL.md`, `sql/02_modelo_gold.sql` | 16.025.993 filas en bronce y 13.005.402 en plata, cargadas y verificadas; `count(*)` coincide con la API; consultas < 5 s; ocupa < 46 GB |
-| **Kerin** | Analista de Datos | Medir y documentar la volumetría (RF-06, RNF-05, RNF-06), construir el modelo conceptual y lógico de la bodega (Entregable 2), escribir las consultas analíticas de RF-07 a RF-13 y las vistas de RF-13 | `volumetria.md`, `modelo_relacional.md`, `consultas_ejemplos.md` | Volumetría con 4 proyecciones y 8 consultas de verificación; modelo con 2 diagramas PlantUML y DDL; ≥ 15 consultas verificadas |
-| **Isabella** | QA / Visualización | Validar la integridad de la carga (RF-14, RNF-08), medir la calidad de datos (RF-19, RNF-07), construir el tablero de Power BI con KPIs, evolución, mapa, concentración y filtros (RF-15 a RF-18, RF-20), y capturar las evidencias gráficas (Entregable 5), documentar la reproducibilidad (RNF-09) | Tablero Power BI, `docs/imagenes/`, `calidad_datos.md` | Los KPIs coinciden con el SQL; las 4 clases de anomalías están cuantificadas; ≥ 5 PNG en alta resolución |
-
-**Definición de "hecho" común:** un requisito se marca como completado cuando su evidencia existe, se verifica con datos reales (no estimaciones) contra la fuente, y es revisado por los otros dos miembros mediante revisión cruzada comentada en el repositorio. Ningún requisito se completa con una proyección: la volumetría proyecta, pero la entrega exige medir.
-
----
-
-# 5. Requisitos de datos y no negociables
-
-Estos requisitos derivan directamente de la medición del origen y **no admitenatatamiento silencioso**:
-
-| # | Requisito | Valor medido |
+| # | Requisito | Valor |
 |---|---|---|
-| D-01 | Volumen mínimo de registros | **16.025.993** (> 10.000.000 exigido) |
-| D-02 | Grano de la tabla de hechos | 1 fila = 1 contrato registrado, sin colapsar los 4.621.012 repetidos |
-| D-03 | Fidelidad de columnas | Los 22 campos de origen representados; ningún campo eliminado sin documentar |
-| D-04 | Nulos | Los nulos solo pueden estar en las 3 columnas de fecha; cualquier otro nulo es un error de carga |
-| D-05 | Rango de fechas | Solo años en [1994, 2026] en las vistas analíticas; el rango real de firma es 2000–2026 |
-| D-06 | Valores de contrato | Excluir `= 0` (medido: **802.977**) y centinelas `>= 1e12` (medido: **597**) de todo KPI monetario |
-| D-07 | Departamentos | 38 valores crudos → 35 categorías (33 departamentos reales + `No Definido` + `Colombia` inválido) |
-| D-08 | Dimensiones | Medido en la carga completa: **15.928** entidades, **2.508.996** proveedores, 33 departamentos, 18 tipos documentales. `dim_ubicacion` se eliminó (ver `decisiones_tecnicas.md` §2) |
-| D-09 | Plataforma de origen | Preservar SECOP I (14.603.263) y SECOP II (8.066.765) como atributo, no colapsarlos |
-| D-10 | Licencia y atribución | Los datos son CC BY-SA 4.0 de Colombia Compra Eficiente y deben llevar atribución en toda la documentación |
+| D-01 | Volumen mínimo | **16.025.993** en bronce y **13.005.402** en plata (mínimo exigido: 10.000.000) |
+| D-02 | Grano de la tabla de hechos | 1 fila = 1 **versión de contrato** (13.005.402); los duplicados exactos se eliminan, las versiones se conservan |
+| D-03 | Fidelidad | Todas las columnas de origen llegan a bronce sin transformar |
+| D-04 | Rango temporal | Contratos firmados 2017-2026; 2026 parcial (corte 29/09/2026) |
+| D-05 | Dinero | Sumar siempre `valor_ajustado` excluyendo `es_atipico`; nunca `valor_contrato` |
+| D-06 | Atípicos | Se marcan, no se borran (R9 y R9b) |
+| D-07 | Estados | No existe «ANULADO»; cancelaciones = 84 filas (0,0006 %) |
+| D-08 | Valor gastado | Definición derivada (valor contratado vigente); la fuente no trae valor pagado |
+| D-09 | Plataformas | SECOP I y SECOP II se conservan como atributo `origen`, con vocabularios de estado distintos |
+| D-10 | Licencia | CC BY-SA 4.0, Agencia Nacional de Contratación Pública — Colombia Compra Eficiente; la atribución debe aparecer en la documentación y el tablero |
 
 ---
 
@@ -315,12 +352,9 @@ Estos requisitos derivan directamente de la medición del origen y **no admitena
 
 | Documento | Contenido |
 |---|---|
-| [volumetria.md](volumetria.md) | **Entregable 1** — mediciones que respaldan los requisitos de datos D-01 a D-10 |
-| [Plan_Entrega.md](Plan_Entrega.md) | Calendario de las 6 sesiones, roles y actividades por persona |
-| modelo_relacional.md | Entregable 2 — RF-06, RNF-04 |
-| sql/ETL/README_ETL.md | Entregables 3 y 4 — RF-01 a RF-05, RNF-01 a RNF-03 |
-| consultas_ejemplos.md | RF-07 a RF-13 |
-| calidad_datos.md | RF-14, RF-19, RNF-07 |
-| visualizaciones.md + imagenes/ | Entregable 5 — RF-15 a RF-18, RF-20 |
-| instalacion-postgresql-dbeaver.md | RNF-07, RNF-09 |
-| decisiones_tecnicas.md | RNF-04, RNF-10 |
+| [volumetria.md](volumetria.md) | Entregable 1: volumetría del corte vigente |
+| [medicion_estados_y_documentos.md](medicion_estados_y_documentos.md) | Medición de estados y tipos de documento que respalda RQ13, RF-12, RF-21 y RF-22 |
+| [Plan_Entrega.md](Plan_Entrega.md) | Calendario, roles y estados |
+| [modelo_relacional.md](modelo_relacional.md) | Entregable 2: modelo conceptual y lógico |
+| [decisiones_tecnicas.md](decisiones_tecnicas.md) | Por qué el modelo es como es |
+| `sql/ETL/README_ETL.md` | Entregables 3 y 4: bronce y plata |
