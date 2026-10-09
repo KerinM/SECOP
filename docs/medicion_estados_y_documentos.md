@@ -130,10 +130,13 @@ Las 17 filas suman 13.005.402.
 
 ---
 
-## 4. Decisiones pendientes
+## 4. Decisiones confirmadas por el grupo (09/10/2026)
 
-1. Reformular el RQ de anulaciones como **estado del contrato**, dado que las cancelaciones reales son 84 filas.
-2. Confirmar si los estados precontractuales se excluyen de "gastado".
-3. Confirmar el orden de SUSPENDIDO y CEDIDO en el ranking.
-4. Confirmar la heurística del NIT genérico.
-5. Confirmar con el profesor que "gastado" = valor contratado vigente.
+1. El RQ de anulaciones se reformula como **estado del contrato**: las cancelaciones reales son 84 filas.
+2. Se aplica la heurística del NIT genérico (9 dígitos que empiezan por 8 o 9 → JURIDICA).
+3. Los estados precontractuales (rango 1 del ranking) quedan fuera de "gastado".
+
+## 5. Pendientes de confirmar
+
+1. Orden de SUSPENDIDO y CEDIDO en el ranking de ciclo de vida.
+2. Con el profesor: "gastado" = valor contratado vigente (no es valor pagado).
