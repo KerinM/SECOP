@@ -81,7 +81,7 @@
 
 **Hecho:** llaves foráneas a las 5 dimensiones (tiempo con 3 roles: firma, inicio y fin); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
 
-> **Pendiente de confirmar con el equipo:** el rango de `dim_tiempo` (2000-2060, clave entera AAAAMMDD con el registro -1 «SIN FECHA», igual que en las diapositivas) y el nombre `dim_clasificacion_contrato`.
+> **Decidido:** `dim_tiempo` va de 2000 a 2060, con clave entera AAAAMMDD y el registro -1 «SIN FECHA», como en las diapositivas. La dimensión de clasificación se llama `dim_contrato`.
 
 ---
 
@@ -180,7 +180,7 @@ Regla de clasificación (**definición del proyecto, no medición**):
 | JURIDICA | NIT de persona jurídica, sociedades extranjeras, número de fideicomiso, y `NIT` genérico con documento de 9 dígitos que empieza por 8 o 9 (heurística que cubre el 94,5 % de los `NIT` genéricos) |
 | NO CLASIFICADO | NIT de extranjería, otro, nulos y `NIT` genérico que no cumple la heurística |
 
-**Criterio de aceptación:** `NATURAL` 10.372.323 + `JURIDICA` 1.909.481 + `NO CLASIFICADO` 723.598 = 13.005.402 filas; la suma de proporciones del valor es 100 %.
+**Criterio de aceptación:** `NATURAL` 9.979.286 + `JURIDICA` 2.903.235 + `NO CLASIFICADO` 122.881 = 13.005.402 filas (medido en oro); la suma de proporciones del valor es 100 %. La clasificación es **por documento**: si un mismo documento aparece con tipos distintos, JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO (83.765 documentos, 2.554.879 filas).
 
 ### RF-13 — Vistas de consumo reutilizables
 
