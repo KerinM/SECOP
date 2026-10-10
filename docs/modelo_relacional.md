@@ -1,275 +1,246 @@
 # Modelo relacional — Entregable 2
 
-**Responsable:** Kerin · **Requerimientos:** RF-06 (modelo en estrella con PK y FK), RF-07 a RF-13 (consultas y vistas), RNF-04 (escalabilidad), RNF-05 (fidelidad), RNF-06 (trazabilidad)
+**Responsable:** Kerin · **Requerimientos:** RQ01-RQ14, RF-06 (modelo en estrella con PK y FK), RF-07 a RF-13, RF-21, RF-22, RNF-04, RNF-05, RNF-06
 **Base de datos:** `secop_dw` · **DDL ejecutable:** [`sql/02_modelo_gold.sql`](../sql/02_modelo_gold.sql)
 
-Este documento describe el modelo **conceptual** (qué información existe y cómo se relaciona, sin importar cómo se almacena) y el **lógico** (tablas, columnas, tipos, claves y restricciones). El modelo físico está en el DDL y este documento lo explica y lo justifica; no lo duplica.
+Este documento describe el modelo **conceptual** (qué información existe y cómo se relaciona) y el **lógico** (tablas, columnas, tipos, claves y restricciones). El modelo físico está en el DDL; este documento lo explica y lo justifica, no lo duplica.
 
 ---
 
-## 1. Advertencia sobre las cifras de este documento
+## 1. Cómo leer las cifras de este documento
 
-Este proyecto tuvo dos cortes de datos y el cambio es importante para leer cualquier número aquí:
-
-| | Corte anterior | **Corte vigente (`secop_dw`)** |
-|---|---|---:|
-| Base | `secop_integrado` | **`secop_dw`** |
-| Filas de origen | 22.670.028 | **16.025.993** |
-| Capa intermedia | `silver.contrato` | **`silver.contratos`** |
-| Filas tras limpiar | 22.670.028 (fiel al origen) | **13.005.402** (deduplicada) |
-| Nombre de la capa cruda | `staging` | **`bronze`** (`bronze.secop_raw`) |
-
-**Consecuencia:** las cardinalidades medidas sobre el corte anterior (sección 7.3) **no son válidas** para el corte vigente, porque el origen cambió y porque la limpieza ahora deduplica. Están marcadas como tales. Las cardinalidades del corte vigente **aún no están medidas** y se marcan como *pendiente* con la consulta exacta que las produce. Preferimos un hueco declarado a un número inventado.
-
----
-
-## 2. La capa de entrada: qué hereda la capa oro
-
-Oro no transforma nada. Toma `silver.contratos` tal como está y solo reorganiza la información en un modelo en estrella. Lo que oro **no** hace es un trabajo que ya hizo plata, y conviene dejarlo claro porque explica por qué el modelo es tan simple:
-
-| Decisión de plata | Efecto en el modelo de oro |
+| Marca | Significado |
 |---|---|
-| Deduplica filas idénticas (13.005.402 desde 16.025.993) | `fact_contrato` tiene una fila por versión, no una por registro bruto |
-| Calcula `valor_ajustado` a partir de las versiones de cada contrato | `SUM(valor_ajustado)` es correcto; `SUM(valor_contrato)` está contaminado |
-| Normaliza mayúsculas, tildes y barras (35 departamentos, no 38) | Las claves naturales son estables y admiten `UNIQUE` |
-| Rechaza fechas imposibles y las deja en `NULL` con bandera | Se necesita un centinela para no perder esas filas (sección 6.3) |
+| **medido** | Salió de una consulta sobre el corte vigente (`secop_dw`, 29/09/2026) |
+| **definido** | Es una regla de negocio del proyecto, no una medición |
+| **pendiente** | No medido todavía |
+
+Corte vigente: 16.025.993 filas en bronce, **13.005.402** en plata y **13.005.402** en `fact_contrato` (medido: diferencia 0). Las cifras del corte anterior (`secop_integrado`, 22.670.028 filas) **no son válidas** aquí.
+
+---
+
+## 2. El modelo sale de los requerimientos
+
+**Corrección del profesor:** el modelo estrella se crea a partir de los requerimientos. Cada dimensión existe porque algún RQ la necesita:
+
+| RQ | Se responde con |
+|---|---|
+| RQ01 valor y número de contratos por entidad y año | `dim_entidad` + `dim_tiempo` |
+| RQ02 evolución anual 2017-2026 | `dim_tiempo` (año) |
+| RQ03 porcentaje de contratación directa por entidad | `dim_entidad` + `es_competitiva` de `dim_contrato` |
+| RQ04 concentración de proveedores y entidades con las que contratan | `dim_proveedor` y `COUNT(DISTINCT sk_entidad)` |
+| RQ05 departamentos y municipios con mayor valor | `dim_ubicacion` |
+| RQ06 duración promedio por tipo y modalidad | `duracion_dias` + `dim_contrato` |
+| RQ07 nacional frente a territorial | `nivel_entidad` de `dim_entidad` |
+| RQ08 valor total y promedio por tipo | `tipo_contrato` de `dim_contrato` |
+| RQ09 estacionalidad mensual y trimestral | mes y trimestre de `dim_tiempo` |
+| RQ10 proporción de valor con personas naturales y jurídicas | `tipo_persona` de `dim_proveedor` |
+| RQ11 participación de SECOP II frente a SECOP I | `origen` de `dim_contrato` |
+| RQ12 entidades con más contratos atípicos | `es_atipico` por `dim_entidad` |
+| RQ13 estado de los contratos | `agrupacion_estado` de `dim_contrato` |
+| RQ14 valor gastado | medida `valor_gastado` |
+
+---
+
+## 3. La capa de entrada: qué hereda la capa oro
+
+Oro no limpia nada: toma `silver.contratos` y reorganiza la información en estrella. El trabajo de calidad ya ocurrió en plata:
+
+| Decisión de plata | Efecto en oro |
+|---|---|
+| Elimina duplicados exactos (16.025.993 → 13.005.402) | `fact_contrato` tiene una fila por versión, no por registro bruto |
+| Calcula `valor_ajustado` por versiones | `SUM(valor_ajustado)` es correcto; `SUM(valor_contrato)` no |
+| Normaliza mayúsculas, tildes y barras (R1, R3) | Las claves naturales admiten `UNIQUE` plano |
+| Pone fechas imposibles en `NULL` con bandera (R4) | Las filas sin fecha caen en el registro `-1 SIN FECHA` |
 | Marca valores extremos con `flag_valor_atipico` | Todo KPI de dinero filtra `NOT es_atipico` |
 
-Las banderas de calidad **viajan a oro**. Oro no las recalcula ni las descarta: las copia con el prefijo `flag_` eliminado (`es_atipico`, `es_valor_extremo`, `es_valor_cero`, `es_valor_relleno`, `es_valor_repetido`, `es_version_contrato`, `es_fecha_invalida`, `es_fechas_incoherentes`). Un tablero puede entonces filtrar por ellas sin volver a plata.
+Las banderas **viajan a oro** sin el prefijo `flag_` (`es_atipico`, `es_valor_extremo`, `es_valor_cero`, `es_valor_relleno`, `es_valor_repetido`, `es_version_contrato`, `es_fecha_invalida`, `es_fechas_incoherentes`).
 
 ---
 
-## 3. El grano: la decisión que condiciona todo el modelo
+## 4. El grano
 
 **Una fila de `gold.fact_contrato` = una fila de `silver.contratos` = una versión de contrato.**
 
-No es un contrato, no es un registro del CSV. La distinción importa por dos razones:
+No es un contrato ni un registro del CSV. Dos razones:
 
-1. **SECOP II publica cada modificación como una fila nueva.** Un mismo contrato aparece varias veces con valores distintos, porque cada versión es un acto administrativo distinto. En el corte vigente, **554.063 contratos tienen versiones**; en 4.720 de ellos (0,85%) incluso cambia el número de proceso entre versiones. El grano es la versión.
+1. **SECOP II publica cada modificación como una fila nueva.** En el corte vigente hay **554.063 contratos con versiones** (medido) y **12.147.523 `id_contrato` distintos** en las 13.005.402 filas (medido).
+2. **Por eso `SUM(valor_ajustado)` funciona y `SUM(valor_contrato)` no.** Sumar el valor crudo suma cada versión completa y multiplica el dinero (692 billones en 2018 frente a ~100 oficiales).
 
-2. **Por eso `SUM(valor_ajustado)` sí funciona y `SUM(valor_contrato)` no.** `valor_ajustado` se calculó en plata reparando las versiones, de forma que las filas de un contrato suman coherentemente. Sumar el valor crudo sumaría cada versión completa y multiplicaría el dinero.
+Si el grano subiera a «contrato» habría que elegir una fila por contrato y se perdería la historia de modificaciones.
 
-Si el grano se subiera a "contrato" habría que elegir una fila por contrato (la última, la mayor) y se perdería la historia de las modificaciones, que es justamente lo que pide RF-08. Se documenta como decisión consciente.
+> **La diapositiva 9 debe corregirse:** dice «`id_contrato` + `documento_proveedor`», y el grano real es **una versión de contrato**.
 
 ---
 
-## 4. Modelo conceptual
+## 5. Modelo conceptual
 
-### 4.1 Entidades y atributos
+### 5.1 Entidades
 
-**Contrato** (entidad fuerte) — el hecho central.
-`fecha_firma`, `fecha_inicio`, `fecha_fin`, `numero_contrato`, `numero_proceso`, `valor_contrato`, `valor_ajustado`, `objeto_contrato`, `url_contrato`, más ocho banderas de calidad.
+| Entidad | Atributos |
+|---|---|
+| **Contrato** (hecho) | fechas de firma, inicio y fin; `id_contrato`; `id_proceso`; `valor_contrato`; `valor_ajustado`; `valor_gastado`; `duracion_dias`; banderas de calidad |
+| **Entidad contratante** | código, nombre, NIT, nivel |
+| **Ubicación** | departamento, municipio |
+| **Proveedor** | documento, nombre, tipo de persona |
+| **Clasificación del contrato** | modalidad, es competitiva, tipo, estado, agrupación de estado, origen |
+| **Tiempo** | fecha, año, semestre, trimestre, mes, día |
 
-**Entidad contratante** — quién contrata.
-`codigo_entidad`, `nombre_entidad`, `nit_entidad`, `nivel_entidad`, `departamento`, `municipio`.
+### 5.2 Relaciones
 
-**Proveedor / contratista** — quién recibe.
-`documento`, `nombre_proveedor`, `tipo_documento`, `es_persona_natural`.
+| Desde | Hacia | Cardinalidad |
+|---|---|---|
+| Entidad | Contrato | 1 → N |
+| Ubicación | Contrato | 1 → N |
+| Proveedor | Contrato | 1 → N |
+| Clasificación | Contrato | 1 → N |
+| Tiempo | Contrato | 1 → N, **tres veces** (firma, inicio, fin) |
 
-**Tipo de contrato** — `codigo`, `descripcion`.
-**Modalidad** — `codigo`, `descripcion`.
-**Estado del proceso** — `codigo`, `descripcion`.
-**Origen del dato** — `codigo`, `descripcion`.
-**Tiempo** — `fecha`, `anio`, `trimestre`, `mes`, `dia`, `nombre_mes`, `dia_semana`, `nombre_dia`, `es_fin_de_semana`.
+**No existe relación entre dimensiones.** Es lo que hace que sea una estrella y no un grafo.
 
-### 4.2 Relaciones
-
-| Desde | Hacia | Cardinalidad | Explicación |
-|---|---|---|---|
-| Entidad | Contrato | 1 → N | Una entidad contrata muchos contratos |
-| Proveedor | Contrato | 1 → N | Un proveedor aparece en muchos contratos |
-| Tipo | Contrato | 1 → N | |
-| Modalidad | Contrato | 1 → N | |
-| Estado | Contrato | 1 → N | |
-| Origen | Contrato | 1 → N | |
-| Tiempo | Contrato | 1 → N | Una fecha, muchos contratos |
-
-**No existe relación entre las dimensiones.** Ninguna entidad depende de un proveedor, ni un tipo de un estado. Es la propiedad que hace que el modelo sea una estrella y no un grafo: cada dimensión se lee sola, y los KPI se calculan uniendo hechos con la dimensión que interesa. Si dos dimensiones tuvieran relación entre sí, aparecería una arista entre tablas de dimensiones, que es exactamente lo que un modelo en estrella evita.
-
-### 4.3 Diagrama conceptual
+### 5.3 Diagrama conceptual
 
 ```plantuml
 @startuml
-' Modelo conceptual del Entregable 2. No muestra tipos ni claves:
-' muestra qué información existe y cómo se relaciona.
+hide circle
 
 entity "Entidad" as Entidad {
   codigo_entidad
   nombre_entidad
   nit_entidad
   nivel_entidad
+}
+
+entity "Ubicacion" as Ubicacion {
   departamento
   municipio
 }
 
 entity "Proveedor" as Proveedor {
-  documento
+  documento_proveedor
   nombre_proveedor
-  tipo_documento
-  es_persona_natural
+  tipo_persona
 }
 
-entity "Tipo de contrato" as Tipo {
-  codigo
-  descripcion
-}
-
-entity "Modalidad" as Modalidad {
-  codigo
-  descripcion
-}
-
-entity "Estado" as Estado {
-  codigo
-  descripcion
-}
-
-entity "Origen" as Origen {
-  codigo
-  descripcion
+entity "Clasificacion del contrato" as Clasificacion {
+  modalidad
+  es_competitiva
+  tipo_contrato
+  estado_proceso
+  agrupacion_estado
+  origen
 }
 
 entity "Tiempo" as Tiempo {
   fecha
   anio
+  semestre
   trimestre
   mes
-  nombre_mes
 }
 
 entity "Contrato" as Contrato {
-  numero_contrato
-  numero_proceso
-  fecha_firma
-  fecha_inicio
-  fecha_fin
+  id_contrato
+  id_proceso
   valor_contrato
   valor_ajustado
-  objeto_contrato
-  url_contrato
+  valor_gastado
+  duracion_dias
 }
 
-Entidad      "1" --> "*" Contrato
-Proveedor    "1" --> "*" Contrato
-Tipo         "1" --> "*" Contrato
-Modalidad    "1" --> "*" Contrato
-Estado       "1" --> "*" Contrato
-Origen       "1" --> "*" Contrato
-Tiempo       "1" --> "*" Contrato
+Entidad       "1" --> "*" Contrato
+Ubicacion     "1" --> "*" Contrato
+Proveedor     "1" --> "*" Contrato
+Clasificacion "1" --> "*" Contrato
+Tiempo        "1" --> "*" Contrato : firma / inicio / fin
 @enduml
 ```
 
-### 4.4 Ubicación: atributo, no dimensión
+### 5.4 Ubicación: dimensión propia
 
-`departamento` y `municipio` están **dentro de `dim_entidad`**, no en una `dim_ubicacion` aparte.
-
-El motivo es la cardinalidad: se midieron **1.131 municipios** y 15.928 entidades. La ubicación es un atributo de la entidad contratante, no una dimensión de primer nivel. Una `dim_ubicacion` aparte habría duplicado el dato sin aportar granularidad nueva, obligado a un `JOIN` extra en cada consulta geográfica (RF-11) y multiplicado por dos el riesgo de que las dos copias se desincronicen.
-
-**Consecuencia asumida:** si el mismo municipio aparece en dos entidades con grafías distintas, la normalización de plata (R1) debe haberlas unificado; el modelo no lo resuelve por sí solo.
+`dim_ubicacion` es una dimensión separada de `dim_entidad` porque RQ05 es un requerimiento geográfico en sí mismo. La ubicación es **la de la entidad contratante**; la fuente no trae lugar de ejecución. Detalle y alternativa descartada en `decisiones_tecnicas.md` §3.1.
 
 ---
 
-## 5. Modelo lógico
+## 6. Modelo lógico
 
-### 5.1 Diagrama lógico
+### 6.1 Diagrama lógico
 
 ```plantuml
 @startuml
-' Modelo lógico del Entregable 2. Muestra tablas, PK, FK y tipos.
-' dim_tiempo usa clave natural (fecha): ver seccion 6.2.
-
 hide circle
 
+entity "gold.dim_tiempo" as dim_tiempo {
+  * sk_tiempo : integer <<PK, AAAAMMDD, -1 = SIN FECHA>>
+  --
+  fecha : date <<UNIQUE>>
+  anio : smallint
+  semestre : smallint
+  trimestre : smallint
+  mes : smallint
+  nombre_mes : text
+  dia : smallint
+  dia_semana : smallint
+  nombre_dia : text
+  es_fin_semana : boolean
+  es_sin_fecha : boolean
+}
+
 entity "gold.dim_entidad" as dim_entidad {
-  * id_entidad : integer <<PK, sequence>>
+  * sk_entidad : integer <<PK, sequence>>
   --
   codigo_entidad : text <<UNIQUE>>
-  nombre_entidad : text
   nit_entidad : text
+  nombre_entidad : text
   nivel_entidad : text
+}
+
+entity "gold.dim_ubicacion" as dim_ubicacion {
+  * sk_ubicacion : integer <<PK, sequence>>
+  --
   departamento : text
   municipio : text
-  contratos : integer
-  valor_total : numeric(18,2)
+  <<UNIQUE (departamento, municipio)>>
 }
 
 entity "gold.dim_proveedor" as dim_proveedor {
-  * id_proveedor : integer <<PK, sequence>>
+  * sk_proveedor : integer <<PK, sequence>>
   --
-  documento : text <<UNIQUE>>
+  documento_proveedor : text <<UNIQUE>>
   nombre_proveedor : text
-  tipo_documento : text
-  es_persona_natural : boolean
-  contratos : integer
-  valor_total : numeric(18,2)
+  tipo_persona : text <<NATURAL, JURIDICA, NO CLASIFICADO>>
 }
 
-entity "gold.dim_tipo_contrato" as dim_tipo_contrato {
-  * id_tipo_contrato : integer <<PK, sequence>>
+entity "gold.dim_contrato" as dim_contrato {
+  * sk_contrato : integer <<PK, sequence>>
   --
-  codigo : text <<UNIQUE>>
-  descripcion : text
-  contratos : integer
-  valor_total : numeric(18,2)
-}
-
-entity "gold.dim_modalidad" as dim_modalidad {
-  * id_modalidad : integer <<PK, sequence>>
-  --
-  codigo : text <<UNIQUE>>
-  descripcion : text
-  es_minima_cuantia : boolean
-  contratos : integer
-  valor_total : numeric(18,2)
-}
-
-entity "gold.dim_estado" as dim_estado {
-  * id_estado : integer <<PK, sequence>>
-  --
-  codigo : text <<UNIQUE>>
-  descripcion : text
-  es_terminado : boolean
-  contratos : integer
-  valor_total : numeric(18,2)
-}
-
-entity "gold.dim_origen" as dim_origen {
-  * id_origen : integer <<PK, sequence>>
-  --
-  codigo : text <<UNIQUE>>
-  descripcion : text
-  contratos : integer
-  valor_total : numeric(18,2)
-}
-
-entity "gold.dim_tiempo" as dim_tiempo {
-  * fecha : date <<PK, natural>>
-  --
-  anio : smallint
-  trimestre : smallint
-  mes : smallint
-  dia : smallint
-  nombre_mes : text
-  dia_semana : smallint
-  nombre_dia : text
-  es_fin_de_semana : boolean
-  es_centinela : boolean
+  modalidad : text
+  es_competitiva : boolean
+  tipo_contrato : text
+  estado_proceso : text
+  agrupacion_estado : text
+  rango_estado : smallint
+  origen : text
+  <<UNIQUE (modalidad, tipo_contrato, estado_proceso, origen)>>
 }
 
 entity "gold.fact_contrato" as fact_contrato {
-  * fecha_firma : date <<PK, FK, partition key>>
+  * sk_fecha_firma : integer <<PK, FK, partition key>>
   * id_fila : bigint <<PK>>
   --
-  fecha_firma_es_centinela : boolean
-  fecha_inicio : date
-  fecha_fin : date
-  duracion_dias : integer <<generated>>
-  numero_contrato : text
-  numero_proceso : text
+  sk_fecha_inicio : integer <<FK>>
+  sk_fecha_fin : integer <<FK>>
+  sk_entidad : integer <<FK>>
+  sk_ubicacion : integer <<FK>>
+  sk_proveedor : integer <<FK>>
+  sk_contrato : integer <<FK>>
+  id_contrato : text <<llave degenerada>>
+  id_proceso : text <<llave degenerada>>
   valor_contrato : numeric(18,2)
   valor_ajustado : numeric(18,2)
-  objeto_contrato : text
-  url_contrato : text
+  valor_gastado : numeric(18,2)
+  duracion_dias : integer
+  contrato_unidad : smallint
   es_atipico : boolean
   es_valor_extremo : boolean
   es_valor_cero : boolean
@@ -278,165 +249,131 @@ entity "gold.fact_contrato" as fact_contrato {
   es_version_contrato : boolean
   es_fecha_invalida : boolean
   es_fechas_incoherentes : boolean
-  id_entidad : integer <<FK>>
-  id_proveedor : integer <<FK>>
-  id_tipo_contrato : integer <<FK>>
-  id_modalidad : integer <<FK>>
-  id_estado : integer <<FK>>
-  id_origen : integer <<FK>>
 }
 
-dim_entidad       ||--o{ fact_contrato : "id_entidad"
-dim_proveedor     ||--o{ fact_contrato : "id_proveedor"
-dim_tipo_contrato ||--o{ fact_contrato : "id_tipo_contrato"
-dim_modalidad     ||--o{ fact_contrato : "id_modalidad"
-dim_estado        ||--o{ fact_contrato : "id_estado"
-dim_origen        ||--o{ fact_contrato : "id_origen"
-dim_tiempo        ||--o{ fact_contrato : "fecha_firma"
+dim_tiempo    ||--o{ fact_contrato : "sk_fecha_firma"
+dim_tiempo    ||--o{ fact_contrato : "sk_fecha_inicio"
+dim_tiempo    ||--o{ fact_contrato : "sk_fecha_fin"
+dim_entidad   ||--o{ fact_contrato : "sk_entidad"
+dim_ubicacion ||--o{ fact_contrato : "sk_ubicacion"
+dim_proveedor ||--o{ fact_contrato : "sk_proveedor"
+dim_contrato  ||--o{ fact_contrato : "sk_contrato"
 @enduml
 ```
 
-### 5.2 Tabla de hechos: qué es clave, qué es medida, qué es atributo
+### 6.2 Tabla de hechos: clave, medida o atributo
 
-La tabla de hechos mezcla tres cosas, y confundirlas es el error clásico del modelo en estrella:
-
-| Categoría | Columnas | Cómo se usa |
+| Categoría | Columnas | Uso |
 |---|---|---|
-| **Claves** | `fecha_firma` + `id_fila` (PK compuesta), las 6 FK | Unen el hecho con las dimensiones. No se agregan. |
-| **Medidas** | `valor_contrato`, `valor_ajustado` | Se suman. `valor_ajustado` es la única usada en KPI. |
-| **Atributos del hecho** | `numero_contrato`, `objeto_contrato`, banderas, `duracion_dias` | Describen **esta** versión del contrato. No se agregan; se cuentan o se filtran. |
+| **Claves** | `sk_fecha_firma` + `id_fila` (PK compuesta); `sk_fecha_inicio`, `sk_fecha_fin`, `sk_entidad`, `sk_ubicacion`, `sk_proveedor`, `sk_contrato` | Unen el hecho con las dimensiones. No se agregan |
+| **Llaves degeneradas** | `id_contrato`, `id_proceso` | Agrupan versiones y permiten bajar al detalle. Sin dimensión propia (`decisiones_tecnicas.md` §4) |
+| **Medidas aditivas** | `valor_ajustado`, `valor_gastado`, `contrato_unidad` | Se suman |
+| **Medida no aditiva** | `valor_contrato` | Se conserva por fidelidad; **no se suma** |
+| **Medida semi-aditiva** | `duracion_dias` | Se promedia o se calculan percentiles; sumarla no tiene sentido |
+| **Atributos del hecho** | las 8 banderas | Describen esta versión; se filtran o cuentan |
 
-`objeto_contrato` es un atributo del hecho y **no** una dimensión: es texto libre, con miles de valores distintos. Ponerlo en una dimensión obligaría a un `JOIN` por cada contrato y no aportaría ningún agrupamiento útil.
+Medidas **derivadas** que no se almacenan (se calculan en las vistas): valor promedio, porcentaje no competitivo, participación de SECOP II, porcentaje de valor atípico.
 
-### 5.3 Deriva
+### 6.3 Medidas
 
-`duracion_dias` es `GENERATED ALWAYS AS (fecha_fin - fecha_inicio) STORED`. Es una resta de dos columnas que RF-09 lee en todos sus percentiles; materializarla evita 13 millones de restas por consulta.
+| Medida | Definición | Tipo |
+|---|---|---|
+| `valor_ajustado` | `valor_contrato / n`, con `n` filas del mismo contrato (R7 y R7b). **La que se suma** | definida |
+| `valor_gastado` | = `valor_ajustado` si `NOT es_atipico` y `agrupacion_estado` ∉ {PRECONTRACTUAL, CANCELADO, NO REGISTRA}; en otro caso **0** | **definida**, pendiente de confirmar con el profesor |
+| `duracion_dias` | `fecha_fin − fecha_inicio`; NULL si falta una de las dos | calculada en la carga |
+| `contrato_unidad` | 1 en cada fila | constante |
 
-El `DEFAULT false` de las banderas y de `es_minima_cuantia` / `es_terminado` existe por un motivo concreto: el `INSERT` de carga usa `coalesce()` sobre banderas que en plata pueden venir nulas, y una columna `NOT NULL` sin default rompe la carga si alguna vez llega un nulo.
-
----
-
-## 6. Normalización
-
-### 6.1 Primera forma normal
-
-Satisfied por construcción, y con una aclaración que suele pasarse por alto: **1FN exige que no haya grupos repetidos**, no solo que las celdas sean atómicas.
-
-El origen **sí** tenía grupos repetidos, de hecho físico: un registro traía nombre de entidad, NIT, departamento y municipio en la misma fila, y esos valores se repetían en las miles de filas de esa entidad. Oro los extrae a `dim_entidad`, y cada fila de hechos guarda solo un entero.
-
-En `dim_proveedor`, el `tipo_documento` y el nombre están juntos porque **ambos dependen del documento completo**, que es la clave natural de la tabla. No es una anomalía. La tabla tiene dos claves: la primaria `id_proveedor`, que es la surrogate key, y la `UNIQUE (documento)`, que es su clave natural y por la que se une la tabla de hechos. `tipo_documento` es un atributo descriptor del mismo documento, no parte de la clave.
-
-### 6.2 Segunda y tercera forma normal
-
-Oro cumple 3FN, con dos puntos que conviene examinar aparte porque son los que se suelen atacar:
-
-- **Claves candidatas.** Cada dimensión categórica tiene una clave natural con `UNIQUE` (`codigo_entidad`, `documento`, `codigo`, …). La clave primaria sigue siendo la sustituta, por lo que el modelo cumple 3FN de hecho, no por Conveniencia: **ninguna decisión de modelado depende de que los datos estén limpios.**
-- **Dependencias transitivas.** En `dim_entidad`, `nombre_entidad`, `nit_entidad`, `departamento` y `municipio` dependen de `codigo_entidad`, que es clave de la tabla. No dependen de `id_entidad` ni entre sí, así que no hay dependencia transitiva.
-- **Dependencias parciales.** No hay ninguna: toda columna no clave depende de la clave completa.
-
-La normalización llega a 3FN pero no a BCN de forma total, y es una decisión: en `dim_tipo_contrato`, `codigo` y `descripcion` son sinónimos en la práctica (el código es el texto). BCN pediría separarlos. No se separan porque no hay violación real —depender del código es depender de la clave— y separar añadiría una tabla sin eliminar ninguna anomalía.
-
-### 6.3 Desnormalización deliberada: `contratos` y `valor_total`
-
-Las seis dimensiones categóricas llevan dos columnas agregadas: `contratos` (entero) y `valor_total` (`numeric(18,2)`), con `valor_total` calculado sobre `valor_ajustado` excluyendo `es_atipico`.
-
-Esto **rompe 3NF a propósito**: `valor_total` es derivable de los hechos, y mantenerlo en la dimensión es una duplicación que puede quedar desactualizada.
-
-El motivo es de consumo, no de corrección. La alternativa a calcularla en cada consulta es un `SUM` sobre 13 millones de filas **por cada tarjeta de un tablero**, y los tableros de RF-15 a RF-18 muestran una tarjeta por entidad, por proveedor y por modalidad. El ahorro no es hipotético.
-
-Cómo se evita que se desactualice: las columnas se recalculan con seis `UPDATE` que corren en cada ejecución de la carga, inmediatamente antes de insertar los hechos. No se recalculan "a mano" ni se mantienen entre ejecuciones. Si se modificara un hecho sin pasar por la carga, ambas quedarían desincronizadas; por eso el DDL **no expone estas columnas como editables** y por eso los hechos no se corrigen en sitio.
-
-> **No hay transacción alrededor de la carga, y es deliberado.** Los seis `UPDATE` y el `INSERT` de hechos son sentencias sueltas: `psql` corre cada una en autocommit. Envolver 13 millones de filas en una sola transacción exigiría sostener el WAL y el visibilidad de snapshots de todo el lote en memoria, que es justo lo que este clúster no tiene (8 GB en `shared_buffers`). El costo de esa decisión es acotado y conocido: si el `INSERT` de hechos fallara a mitad de camino, los agregados de las dimensiones ya quedaron confirmados y corresponderían a los lotes cargados hasta ese punto. Se corrige relanzando la carga, que es idempotente para las dimensiones y hay que volver a tirar para los hechos. Es preferible a un OOM a mitad del proceso.
-
-`duracion_dias` es el mismo tipo de decisión, pero más barata: no necesita `JOIN`, se materializa sola y por eso sí es `GENERATED`.
-
-### 6.4 Dimensión que no usa llave sustituta: `dim_tiempo`
-
-De las siete dimensiones, **`dim_tiempo` es la única cuya clave primaria es natural** (`fecha`). Las otras seis usan `id` incremental más clave natural con `UNIQUE`. También es la única que **no tiene registro `-1`**.
-
-Es una desviación consciente de la especificación original, que pedía siete dimensiones con llave sustituta y registro desconocido. El motivo está en una restricción de PostgreSQL:
-
-`fecha_firma` es **clave de partición** de `fact_contrato`. PostgreSQL exige que la clave de partición sea una columna o expresión **de la propia tabla**, nunca una referencia a otra tabla. Si `dim_tiempo` tuviera `id_tiempo`, la FK sería `id_tiempo → id_tiempo` y habría que **duplicar la fecha en la tabla de hechos**, guardarla dos veces, y perder la garantía de que ambas copias coinciden.
-
-El `-1` tampoco aporta nada aquí. En las otras seis dimensiones, `-1` responde a *"no sé qué valor es"*. En el calendario la ausencia de fecha **ya tiene un valor propio y explícito**: `1900-01-01`, con su bandera `es_centinela`. El `-1` sería un segundo símbolo para la misma idea, y usar los dos sería peor que usar uno.
-
-### 6.5 El registro `-1`: miembro desconocido
-
-Las seis dimensiones categóricas tienen un registro con `id = -1` y `codigo = 'NO DEFINIDO'`. No es un dato: es la representación de "esta fila no tiene valor en esta dimensión".
-
-Existe por tres razones que se refuerzan:
-
-1. Las seis FK de `fact_contrato` son `NOT NULL`. Sin `-1`, la carga fallaría en la primera fila sin categoría.
-2. Evita la ambigüedad de `LEFT JOIN` + `COALESCE` en cada consulta.
-3. Hace visible el vacío en los tableros. Contar filas con `id_entidad = -1` responde *"¿cuántos contratos no tienen entidad contratante?"*, que es una pregunta de calidad de datos, y se responde con un `WHERE`, no reescribiendo la agregación.
-
-El `-1` **no se excluye de los agregados**: si se excluyera, el número de contratos de un tablero no cuadraría con el número de filas de plata. Se excluye solo cuando la pregunta es sobre entidades o proveedores, que es donde el desconocido no aporta.
+**`valor_gastado` es el valor contratado vigente, no el pagado.** La fuente no trae valor pagado ni ejecutado. Nunca debe presentarse como dinero pagado.
 
 ---
 
-## 7. Cardinalidades
+## 7. Dimensiones
 
-### 7.1 Cómo leer las cifras
+### 7.1 `dim_tiempo`
 
-| Marca | Significado |
-|---|---|
-| **medido** | Salió de una consulta sobre el corte indicado |
-| **proyectado** | Estimación a partir del corte anterior |
-| **pendiente** | No medido todavía; se indica la consulta |
+Calendario **2000-01-01 a 2060-12-31** (22.281 días) más el registro `-1 SIN FECHA`: **22.282 filas** (medido, verificación 9.12 en `t`). Clave entera `sk_tiempo` = AAAAMMDD.
 
-### 7.2 Estado actual
+Se usa con **tres roles** en el hecho (firma, inicio y fin). El entero sirve como clave de partición, lo que invalida la justificación anterior de usar la fecha como clave natural (`decisiones_tecnicas.md` §5).
 
-**Las cardinalidades del corte vigente `secop_dw` no están medidas.** No se reportan aquí porque no se han ejecutado consultas contra `silver.contratos` en este corte, y estimarlas a partir del corte anterior (que además tiene el doble de filas y no estaba deduplicado) produciría cifras plausible e incorrectas.
+### 7.2 `dim_entidad` y `dim_ubicacion`
 
-El bloque 9 del DDL las produce automáticamente: la consulta **9.2** da el conteo real de filas y tamaño de cada tabla de oro, y las **9.8** dan cuántas filas caen en cada `-1`. Con esa salida, esta sección se completa con números medidos.
+`dim_entidad`: clave natural `codigo_entidad` (el NIT tiene 4,00 % de vacíos). **15.821 entidades** nuevas más el `-1` (medido). La ubicación **no** vive aquí.
 
-### 7.3 Lo que sí sabemos, y de dónde viene
+`dim_ubicacion`: un par `(departamento, municipio)`; los `NULL` se guardan como `NO REGISTRA`. **1.176 pares** nuevos más el `-1` (medido).
 
-**Estructural, sin depender de los datos:**
+### 7.3 `dim_proveedor` y `tipo_persona`
 
-| Objeto | Cardinalidad |
+Clave natural `documento_proveedor` (ya normalizado en plata, R8). **2.181.587 filas** incluido el `-1` (medido, conteo real).
+
+`tipo_persona` es una **regla de negocio** (`gold.clasificar_persona`), asignada **por documento**: si un mismo documento aparece con tipos distintos, **JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO**. El tipo de documento original **no se modela**.
+
+**Medido:** 83.765 documentos tienen tipos contradictorios (2.554.879 filas, 19,6 %). Reparto resultante por fila de `fact_contrato`:
+
+| tipo_persona | Filas |
 |---|---:|
-| `dim_tiempo` | **47.847** días exactos (1900-01-01 a 2030-12-31) |
-| `dim_tipo_contrato`, `dim_modalidad`, `dim_estado`, `dim_origen` | Valores muy bajos, contados en QA |
-| Membresía `-1` en cada dimensión | Exactamente 1 fila, por construcción |
-| Particiones de `fact_contrato` | 13 (11 anuales 2017-2027, 1 cuarentena pre-2000, 1 por defecto) |
+| NATURAL | 9.979.286 |
+| JURIDICA | 2.903.235 |
+| NO CLASIFICADO | 122.881 |
+| **Total** | **13.005.402** |
 
-**Del corte anterior de 22.670.028 filas — válido como referencia histórica, no como medida actual:**
+Clasificando cada fila por separado salía NATURAL 10.372.323, JURIDICA 1.909.481 y NO CLASIFICADO 723.598; la diferencia es el efecto de asignar un tipo único a cada documento. **Riesgo:** como JURIDICA gana, un único `NIT` mal registrado puede inflarla. La proporción de RQ10 debe presentarse como **por documento y con prioridad JURIDICA**.
 
-| Dimensión | Cardinalidad | Medición |
-|---|---:|---|
-| Entidades | 15.928 | medida |
-| Proveedores | 2.508.996 | medida |
-| Municipios | 1.131 | medida |
-| Departamentos | 35 (33 reales + `No Definido` + inválido `Colombia`) | medida, sobre 38 valores crudos |
-| Orígenes | 2 | medida |
-| Tipos de contrato | 34 | medida |
-| Modalidades | 15 | medida |
+La clasificación del `NIT` genérico usa una **heurística** (9 dígitos que empiezan por 8 o 9 → JURIDICA), que cubre el 94,5 % de los 262.530 `NIT` genéricos (medido). La regla completa está en `requerimientos.md` RF-12.
 
-**Lo que sí sabemos del corte vigente y es medido:**
+### 7.4 `dim_contrato`
 
-| Dato | Valor |
-|---|---:|
-| Filas en `bronze.secop_raw` | 16.025.993 |
-| Filas en `silver.contratos` | 13.005.402 |
-| Validación de plata | 42/42 pruebas OK |
-| Valores marcados `flag_valor_atipico` | 33.928 |
+Combina modalidad, tipo de contrato, estado y origen: **1.005 combinaciones** nuevas más el `-1` (medido). Atributos derivados (**definidos**):
 
----
+- **`es_competitiva`:** FALSE para `CONTRATACION DIRECTA`, `OTRAS FORMAS DE CONTRATACION DIRECTA` y `REGIMEN ESPECIAL`; TRUE para el resto; NULL si la modalidad es desconocida. **El régimen especial cuenta como no competitivo** (decisión del grupo). Resultado medido: ≈ 89,7 % de las filas son no competitivas, por lo que el indicador debe mostrarse **desglosado por modalidad**.
+- **`agrupacion_estado` y `rango_estado`:** ciclo de vida en 7 grupos (1 PRECONTRACTUAL … 7 CANCELADO; 0 desconocido). **Regla provisional**; el orden de SUSPENDIDO y CEDIDO es juicio del equipo. El estado «ANULADO» **no existe** en la fuente: lo más cercano son 84 filas de cancelaciones (0,0006 %).
 
-## 8. Modelo físico: particionado e índices
+`origen` conserva `SECOPI` y `SECOPII` separados, porque usan vocabularios de estado distintos.
 
-Detalle en [`decisiones_tecnicas.md`](decisiones_tecnicas.md) y en los comentarios del DDL. Resumen:
+### 7.5 El registro `-1`
 
-- **`fact_contrato` está particionada por rango de `fecha_firma`**: 11 particiones anuales (2017-2027), 1 cuarentena `pre2000` (que Concentra todo el centinela) y 1 partición por defecto.
-- **La PK es compuesta** `(fecha_firma, id_fila)` porque PostgreSQL no admite una PK ni un `UNIQUE` que no incluya la clave de partición. Efecto lateral útil: los rangos de fecha quedan cubiertos, así que no hace falta un B-tree extra sobre `fecha_firma`.
-- **BRIN sobre `fecha_firma`**, no B-tree. El orden de carga es por año, así que las páginas físicas ya están ordenadas y el BRIN cumple por menos de 1% de su tamaño.
+Las 5 dimensiones tienen un registro `sk = -1` (`NO REGISTRA`; `SIN FECHA` en tiempo). Razones:
+
+1. Las FK del hecho son `NOT NULL`; sin el `-1`, la carga fallaría en la primera fila sin categoría.
+2. Evita el `LEFT JOIN` + `COALESCE` en cada consulta.
+3. Hace visible el vacío: contar filas con `sk_entidad = -1` responde «¿cuántos contratos no tienen entidad?» con un `WHERE`.
+
+El `-1` **no se excluye** de los agregados generales (el total del tablero debe cuadrar con las filas de plata); solo se excluye cuando la pregunta es sobre entidades o proveedores.
 
 ---
 
-## 9. Trazabilidad (RNF-06)
+## 8. Normalización
 
-`fact_contrato.id_fila` es **la misma clave** que `silver.contratos.id_fila` y que `bronze.secop_raw.id_fila`. Oro no genera una identidad nueva. La ruta completa de una cifra es:
+### 8.1 Primera forma normal
+
+Se cumple. El origen tenía grupos repetidos de hecho físico: cada registro traía nombre de entidad, NIT, departamento y municipio, repetidos en miles de filas. Oro los extrae a dimensiones y cada fila de hechos guarda solo enteros.
+
+### 8.2 Segunda y tercera forma normal
+
+- **Dependencias parciales:** ninguna. Toda columna no clave depende de la clave completa.
+- **`dim_entidad`, `dim_ubicacion`, `dim_proveedor`:** cumplen 3FN. Cada atributo depende de la clave sustituta y, equivalentemente, de la clave natural.
+- **`dim_contrato` no cumple 3FN, y es deliberado.** `es_competitiva` depende de `modalidad`, y `agrupacion_estado` y `rango_estado` dependen de `estado_proceso`: son dependencias entre atributos no clave. Es la práctica habitual en una dimensión de un esquema en estrella: los atributos derivados se guardan ya calculados para agrupar sin funciones. Se recalculan con un `UPDATE` al cierre de la carga de dimensiones, así que no se desincronizan.
+- **La tabla de hechos** guarda tres valores derivados (`valor_gastado`, `duracion_dias`, `contrato_unidad`). Son una **desnormalización de consumo** y se calculan solo en la carga. Por eso los hechos **no se corrigen en sitio**: se reconstruye oro.
+
+### 8.3 Lo que ya no se desnormaliza
+
+El modelo anterior guardaba `contratos` y `valor_total` en cada dimensión. **Se eliminaron**: eran derivables, podían quedar desactualizadas y obligaban a seis `UPDATE` por carga. Los agregados viven ahora en las vistas materializadas (`decisiones_tecnicas.md` §13).
+
+---
+
+## 9. Modelo físico: particionado e índices
+
+Detalle en [`decisiones_tecnicas.md`](decisiones_tecnicas.md) §10 y §12. Resumen:
+
+- **`fact_contrato` particionada por RANGE sobre `sk_fecha_firma`** (entero AAAAMMDD): `pre2017` (incluye el `-1`), 11 anuales 2017-2027 y una por defecto: **13 particiones**, todas en `gold` (medido, verificación 9.4).
+- **PK compuesta** `(sk_fecha_firma, id_fila)`: PostgreSQL no admite una PK que no incluya la clave de partición.
+- **7 índices adicionales:** BRIN sobre `sk_fecha_firma`; `(sk_fecha_firma, valor_ajustado)`; `sk_proveedor`; `sk_entidad`; `sk_ubicacion`; `sk_contrato`; `id_contrato`.
+- Añadir 2028 requiere una sola partición nueva (RNF-04).
+
+---
+
+## 10. Trazabilidad (RNF-06)
+
+`fact_contrato.id_fila` es la misma clave que `silver.contratos.id_fila` y `bronze.secop_raw.id_fila`:
 
 ```sql
 SELECT ... FROM gold.fact_contrato f
@@ -444,70 +381,87 @@ JOIN silver.contratos  s USING (id_fila)
 JOIN bronze.secop_raw  b USING (id_fila);
 ```
 
-**El precio, que hay que conocer:** la trazabilidad ata el `id` al orden de carga de bronce. Si bronce se recarga con otro orden, hay que reconstruir oro. Es un intercambio consciente y el propio DDL lo documenta.
-
-Es también la razón por la que oro **no** guarda `fecha_firma_original`. En el modelo anterior, plata conservaba el texto crudo de la fecha y oro podía duplicarlo. En `secop_dw`, R4 puso la fecha rechazada en `NULL` y solo dejó la bandera: **el original ya no está en plata**, así que una columna con ese nombre en oro guardaría una copia de `fecha_firma` (52 MB) sin recuperar nada. El original vive en bronce, al que se llega por `id_fila`.
+**Precio:** el `id` queda ligado al orden de carga de bronce; si bronce se recarga con otro orden, hay que reconstruir oro. Oro tampoco guarda `fecha_firma_original`: plata borró el texto de la fecha rechazada (R4), y se recupera por `id_fila` en bronce.
 
 ---
 
-## 10. Vistas de consumo (RF-13)
+## 11. Vistas de consumo (RF-13)
 
 | Vista | Para qué | Filtra |
 |---|---|---|
-| `gold.v_contratos` | Auditoría y QA. Todos los contratos con las banderas a la vista. | Nada |
-| `gold.v_contratos_validos` | **Origen único de Power BI.** | `NOT es_atipico AND NOT es_fecha_invalida` |
+| `gold.v_contratos` | Auditoría y QA. Todas las versiones con las banderas a la vista | Nada |
+| `gold.v_contratos_validos` | **Origen único de Power BI** | `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1` |
 
-**Por qué el filtro vive en la vista y no en el tablero.** Un filtro en Power BI es una opción que se puede desactivar con un clic. En un tablero que se presenta a un externo, esa es la única protección que separa el número que se publica del número que es un error del dato. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado por ningún camino.
+**Por qué el filtro vive en la vista:** un filtro de Power BI se desactiva con un clic. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado.
+
+Las vistas de agregación para el tablero (KPIs, evolución, geografía, proveedores, calidad) están en `sql/04_vistas.sql` y se refrescan con `CALL gold.refrescar_vistas()`. **Pendiente de actualizar** al modelo de 5 dimensiones.
 
 ---
 
-## 11. Verificación
+## 12. Verificación
 
-El bloque 9 del DDL ejecuta once comprobaciones. Las cuatro que de verdad detectan un modelo mal construido:
+El bloque 9 del DDL ejecuta 17 comprobaciones. Resultado de la carga de prueba (medido):
 
-| # | Comprobación | Valor esperado | Qué detecta |
+| # | Comprobación | Esperado | Resultado |
 |---|---|---|---|
-| 9.5 | Huérfanos por FK (7 conteos) | 0 en todos | Un hecho apuntando a una dimensión inexistente |
-| 9.6 | `silver.contratos` − `fact_contrato` | 0 | Grano perdido o duplicado en la carga |
-| 9.7 | `(fecha_firma, id_fila)` duplicados | 0 | Carga repetida |
-| 9.9 | Dinero por año | Cercano a ~100 billones en 2018 | Medidas mal filtradas |
+| 9.1 | Objetos de oro (5 dimensiones + 1 hecho) | 6 | ✔ |
+| 9.3 / 9.4 | Particiones, todas en `gold` | 13 | ✔ |
+| 9.5 | Huérfanos por FK (7 conteos) | 0 | ✔ |
+| 9.6 | `silver` − `fact_contrato` | 0 | ✔ (13.005.402 = 13.005.402) |
+| 9.7 | `(sk_fecha_firma, id_fila)` duplicados | 0 | ✔ |
+| 9.8 | Filas en `-1` | Coincide con los vacíos de plata | ✔ |
+| 9.9 | Dinero 2018, sin atípicos | ≈ 100 billones | ✔ **102,54**; `gastado` ≤ `limpio` |
+| 9.11 | Atípicos | 33.938 | ✔ |
+| 9.12 | `dim_tiempo` | 22.282 filas, sin huecos | ✔ |
+| 9.13 | `tipo_persona` por fila | 9.979.286 / 2.903.235 / 122.881 | ✔ (ver §7.3) |
+| 9.14 | Estados sin agrupar | 0 filas | ✔ |
+| 9.16 | `valor_gastado` > `valor_ajustado` | 0 | ✔ |
+| 9.17 | `secop_lectura` | ve `gold`, no ve `silver` | ✔ |
 
-La 9.9 es la que importa. Un modelo perfectamente normalizado que sume mal es peor que un modelo mal normalizado que al menos se ve raro: el primero se descubre en una auditoría.
+> **Esta carga es de prueba.** Cuando se corrija la regla R5 de plata (conservar el estado de mayor rango, `decisiones_tecnicas.md` §18), habrá que **repetir la carga de oro**. El conteo no cambia, pero cambia el estado que conserva cada fila y, con ello, `valor_gastado` y la verificación 9.15.
+
+La verificación 9.9 es la que importa: un modelo perfectamente normalizado que suma mal es peor que uno mal normalizado que al menos se ve raro.
 
 ---
 
-## 12. Trazabilidad de requisitos
+## 13. Trazabilidad de requisitos
 
 | Requisito | Dónde se cumple |
 |---|---|
-| RF-06 · Modelo en estrella con PK y FK | Secciones 4-6, DDL completo |
-| RF-07 · Concentración de mercado | `dim_proveedor`, `dim_entidad` |
-| RF-08 · Fraccionamiento de contratos | Grano por versión (sección 3), `es_version_contrato` |
-| RF-09 · Tiempos de ejecución | `duracion_dias`, `dim_tiempo`, `es_fechas_incoherentes` |
-| RF-10 · Evolución temporal | `dim_tiempo`, `dim_modalidad`, `dim_tipo_contrato` |
-| RF-11 · Análisis geográfico | `departamento`, `municipio` en `dim_entidad` |
-| RF-12 · Perfil de contratistas | `tipo_documento`, `es_persona_natural` |
-| RF-13 · Vistas reutilizables | `v_contratos`, `v_contratos_validos` |
-| RNF-04 · Escalabilidad | Particionado e índices (sección 8) |
-| RNF-05 · Fidelidad | `valor_contrato` se conserva; `valor_ajustado` es la medida |
-| RNF-06 · Trazabilidad | `id_fila` heredado (sección 9) |
+| RQ01-RQ14 | Sección 2 |
+| RF-06 · Modelo en estrella con PK y FK | Secciones 6-9, DDL completo |
+| RF-07 · Concentración y distribución | `dim_proveedor`, `dim_entidad`, `dim_contrato` |
+| RF-08 · Contratación no competitiva | `es_competitiva` (§7.4) |
+| RF-09 · Duración | `duracion_dias`, `es_fechas_incoherentes` |
+| RF-10 · Evolución y estacionalidad | `dim_tiempo`, `origen` |
+| RF-11 · Geografía | `dim_ubicacion` |
+| RF-12 · Perfil de proveedores | `tipo_persona` (§7.3) |
+| RF-13 · Vistas | `v_contratos`, `v_contratos_validos` |
+| RF-21 · `valor_gastado` | §6.3 |
+| RF-22 · Estado del contrato | `agrupacion_estado` (§7.4) |
+| RNF-04 · Escalabilidad | §9 |
+| RNF-06 · Trazabilidad | §10 |
 
 ---
 
-## 13. Desviaciones respecto a la especificación
+## 14. Cambios respecto al modelo anterior
 
-Se documentan aquí para que la revisión las encuentre, no para justificarlas con posteriori.
-
-| # | Especificación | Modelo | Motivo |
+| # | Antes | Ahora | Motivo |
 |---|---|---|---|
-| 1 | 9 dimensiones | 7 (+1 tabla de hechos) | `dim_ubicacion` eliminada: la ubicación es atributo de la entidad (sección 4.4) |
-| 2 | 7 dimensiones con llave sustituta | 6 con `id`; `dim_tiempo` con clave natural | Restricción de partición de PostgreSQL (sección 6.4) |
-| 3 | Registro `-1` en las 7 | 6 registros `-1`; `dim_tiempo` usa el centinela `1900-01-01` | El calendario tiene un valor explícito para la ausencia de fecha (sección 6.4) |
-| 4 | Grano por contrato | Grano por versión de contrato | SECOP II publica cada modificación como fila; conservarlo es lo que pide RF-08 (sección 3) |
+| 1 | 7 dimensiones | **5** | El modelo se deriva de los RQ |
+| 2 | Ubicación como atributo de `dim_entidad` | `dim_ubicacion` propia | RQ05 es geográfico |
+| 3 | `dim_tipo_contrato`, `dim_modalidad`, `dim_estado`, `dim_origen` | `dim_contrato` | Una FK en vez de cuatro |
+| 4 | Tipo de documento | `tipo_persona` | Corrección del profesor |
+| 5 | `dim_tiempo` 1900-2030, clave natural, centinela 1900-01-01 | 2000-2060, clave entera, registro `-1` | El entero sirve de clave de partición |
+| 6 | Una referencia a tiempo | **Tres roles**: firma, inicio, fin | RQ06 necesita la duración |
+| 7 | `contratos` y `valor_total` en dimensiones | Eliminadas | Se calculan en vistas |
+| 8 | Sin métrica de gasto ni estado | `valor_gastado`, `agrupacion_estado` | RQ13 y RQ14 |
+| 9 | Régimen especial como competitivo | No competitivo | Decisión del grupo |
+| 10 | Grano por contrato en las diapositivas | Grano por **versión** | SECOP II publica cada modificación como fila |
 
 ---
 
-## 14. Cómo reproducir este modelo
+## 15. Cómo reproducir este modelo
 
 ```bash
 # Base de datos objetivo
@@ -517,22 +471,23 @@ PGDATABASE=secop_dw
 psql -f sql/02_modelo_gold.sql
 
 # Reconstruir oro desde cero, sin tocar bronce ni plata
+# (obligatorio si existe una versión anterior de oro de 7 dimensiones)
 psql -v recrear=1 -f sql/02_modelo_gold.sql
 ```
 
-Silver debe estar cargada y validada antes: el DDL lee `silver.contratos` y falla si no existe.
+Plata debe estar cargada y validada, y debe haberse corrido `sql/ETL/02c_correccion_valores.sql` (el DDL lee `flag_version_contrato` y `flag_valor_extremo`). La carga de hechos tarda entre 1 y 2 horas.
 
 ---
 
-## 15. Referencias
+## 16. Referencias
 
 | Documento | Contenido |
 |---|---|
-| [`sql/02_modelo_gold.sql`](../sql/02_modelo_gold.sql) | DDL ejecutable: tablas, claves, índices, particiones, carga, vistas, verificación |
+| [`sql/02_modelo_gold.sql`](../sql/02_modelo_gold.sql) | DDL ejecutable: funciones, tablas, claves, índices, particiones, carga, vistas y verificación |
 | [`decisiones_tecnicas.md`](decisiones_tecnicas.md) | Decisiones de diseño con alternativas descartadas |
-| [`volumetria.md`](volumetria.md) | Volumetría medida |
-| [`requerimientos.md`](requerimientos.md) | RF-01 a RF-20, RNF-01 a RNF-10 |
+| [`requerimientos.md`](requerimientos.md) | RQ01-RQ14, RF y RNF |
+| [`volumetria.md`](volumetria.md) | Volumetría del corte vigente |
+| [`medicion_estados_y_documentos.md`](medicion_estados_y_documentos.md) | Medición de estados y tipos de documento |
 | [`Plan_Entrega.md`](Plan_Entrega.md) | Responsables, ruta y estados |
-| `sql/ETL/02_silver_limpieza.sql` | Definición y reglas de limpieza de `silver.contratos` |
+| `sql/ETL/02_silver_limpieza.sql` | Reglas de limpieza de `silver.contratos` |
 | `sql/ETL/02c_correccion_valores.sql` | `valor_ajustado`, versiones y valores extremos |
-| `sql/ETL/05_qa_silver.sql` | 42 pruebas de calidad de plata |
