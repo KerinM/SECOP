@@ -2,6 +2,7 @@
 
 Base de datos: `secop_dw` · Tabla evaluada: `silver.contratos` (13.005.402 filas)
 Script que lo genera: `sql/ETL/05_qa_silver.sql`
+Corrida posterior a la reconstrucción de plata con R5 (conserva el estado de mayor avance) y a `02c_correccion_valores.sql`.
 
 **Resumen:** 18 de 18 validaciones automáticas en OK (14 de la prueba 1 y 4 de la prueba 7) y 0 grupos duplicados en plata.
 
@@ -52,16 +53,16 @@ Un NULL en plata significa que el dato venía vacío, era "NO DEFINIDO" o era im
 
 | Columna | Vacíos | % vacíos |
 |---|---:|---:|
-| municipio | 1.411.585 | 10,85 |
-| fecha_inicio | 895.006 | 6,88 |
+| municipio | 1.416.119 | 10,89 |
+| fecha_inicio | 772.332 | 5,94 |
 | nit_entidad | 519.784 | 4,00 |
-| departamento | 48.932 | 0,38 |
+| departamento | 54.026 | 0,42 |
 | documento_proveedor | 30.709 | 0,24 |
-| nombre_proveedor | 3.574 | 0,03 |
-| modalidad | 3.073 | 0,02 |
+| nombre_proveedor | 3.578 | 0,03 |
+| modalidad | 2.609 | 0,02 |
 | tipo_contrato | 1.905 | 0,01 |
 | codigo_entidad | 900 | 0,01 |
-| fecha_fin | 125 | 0,00 |
+| fecha_fin | 107 | 0,00 |
 | valor_contrato | 94 | 0,00 |
 | fecha_firma | 3 | 0,00 |
 | id_contrato | 0 | 0,00 |
@@ -70,7 +71,9 @@ Un NULL en plata significa que el dato venía vacío, era "NO DEFINIDO" o era im
 
 | total_plata | fecha_invalida | fechas_incoherentes | valor_cero | valor_relleno | valor_repetido | valor_atipico |
 |---:|---:|---:|---:|---:|---:|---:|
-| 13.005.402 | 30 | 664 | 80.137 | 94 | 148.035 | 33.938 |
+| 13.005.402 | 29 | 616 | 80.137 | 94 | 148.035 | 33.939 |
+
+`valor_atipico` = 33.929 marcados por R9 (`02`) + 10 marcados por R9b (`02c`).
 
 ## Prueba 5. Categorías unificadas (R1 + R3)
 
@@ -87,14 +90,14 @@ Un NULL en plata significa que el dato venía vacío, era "NO DEFINIDO" o era im
 
 | modalidad | Filas |
 |---|---:|
-| CONTRATACION DIRECTA | 8.177.358 |
-| REGIMEN ESPECIAL | 3.487.229 |
-| MINIMA CUANTIA | 922.288 |
-| SELECCION ABREVIADA | 234.894 |
+| CONTRATACION DIRECTA | 8.177.785 |
+| REGIMEN ESPECIAL | 3.487.257 |
+| MINIMA CUANTIA | 922.295 |
+| SELECCION ABREVIADA | 234.895 |
 | CONTRATOS Y CONVENIOS CON MAS DE DOS PARTES | 65.229 |
 | LICITACION PUBLICA | 65.124 |
-| CONCURSO DE MERITOS | 44.706 |
-| *(vacío)* | 3.073 |
+| CONCURSO DE MERITOS | 44.707 |
+| *(vacío)* | 2.609 |
 | SELECCION ABREVIADA MENOR CUANTIA SIN MANIFESTACION INTERES | 1.561 |
 | LICITACION PUBLICA ACUERDO MARCO DE PRECIOS | 1.110 |
 | SELECCION ABREVIADA SERVICIOS DE SALUD | 1.050 |
@@ -113,61 +116,61 @@ Un NULL en plata significa que el dato venía vacío, era "NO DEFINIDO" o era im
 
 | id_fila | nivel_bronce | nivel_plata | depto_bronce | depto_plata | muni_bronce | muni_plata |
 |---:|---|---|---|---|---|---|
-| 15957204 | Nacional | NACIONAL | Santander | SANTANDER | San Gil | SAN GIL |
-| 15955646 | Territorial | TERRITORIAL | Santander | SANTANDER | Bucaramanga | BUCARAMANGA |
-| 15955506 | Nacional | NACIONAL | Distrito Capital de Bogotá | BOGOTA D.C. | Bogotá | BOGOTA D.C. |
-| 15955459 | Territorial | TERRITORIAL | Norte de Santander | NORTE DE SANTANDER | Cúcuta | CUCUTA |
-| 15955322 | Territorial | TERRITORIAL | Antioquia | ANTIOQUIA | Venecia | VENECIA |
-| 15955422 | Territorial | TERRITORIAL | Santander | SANTANDER | Bucaramanga | BUCARAMANGA |
-| 15955331 | Territorial | TERRITORIAL | Santander | SANTANDER | Bucaramanga | BUCARAMANGA |
-| 15962140 | Territorial | TERRITORIAL | Distrito Capital de Bogotá | BOGOTA D.C. | No Definido | NULL |
-| 15956506 | Territorial | TERRITORIAL | Valle del Cauca | VALLE DEL CAUCA | No Definido | NULL |
-| 15955433 | Territorial | TERRITORIAL | Santander | SANTANDER | Bucaramanga | BUCARAMANGA |
+| 15969891 | Territorial | TERRITORIAL | Nariño | NARINO | Pasto | PASTO |
+| 15971397 | Territorial | TERRITORIAL | Huila | HUILA | Yaguará | YAGUARA |
+| 15996579 | Territorial | TERRITORIAL | Distrito Capital de Bogotá | BOGOTA D.C. | No Definido | NULL |
+| 15981555 | Territorial | TERRITORIAL | Quindío | QUINDIO | Armenia | ARMENIA |
+| 15969436 | Territorial | TERRITORIAL | Santander | SANTANDER | No Definido | NULL |
+| 15969758 | Nacional | NACIONAL | Quindío | QUINDIO | Armenia | ARMENIA |
+| 15969474 | Territorial | TERRITORIAL | Magdalena | MAGDALENA | Santa Marta | SANTA MARTA |
+| 15971887 | Territorial | TERRITORIAL | Risaralda | RISARALDA | Pereira | PEREIRA |
+| 15969548 | Territorial | TERRITORIAL | Distrito Capital de Bogotá | BOGOTA D.C. | Bogotá | BOGOTA D.C. |
+| 15969488 | Territorial | TERRITORIAL | Santander | SANTANDER | Floridablanca | FLORIDABLANCA |
 
 ### 6.2 Fechas imposibles (R4)
 
 | id_fila | inicio_bronce | inicio_plata | fin_bronce | fin_plata | flag_fecha_invalida |
 |---:|---|---|---|---|---|
-| 14536665 | *(vacío)* | NULL | 2925-12-24T23:00:00.000 | NULL | t |
-| 14536666 | 2025-11-12T07:00:00.000 | 2025-11-12 | 2925-12-24T23:59:00.000 | NULL | t |
+| 13297978 | 2025-02-25T08:00:00.000 | 2025-02-25 | 2925-09-24T23:59:00.000 | NULL | t |
+| 13297976 | 2025-02-25T08:00:00.000 | 2025-02-25 | 2925-09-24T23:59:00.000 | NULL | t |
 | 478276 | 2094-08-02T00:00:00.000 | NULL | 2094-08-02T00:00:00.000 | NULL | t |
 | 478275 | 2097-04-23T00:00:00.000 | NULL | 2097-04-23T00:00:00.000 | NULL | t |
-| 1528915 | 2098-01-02T00:00:00.000 | NULL | 2098-05-02T00:00:00.000 | NULL | t |
 | 16025993 | 2026-10-15T00:00:00.000 | 2026-10-15 | 2026-10-16T00:00:00.000 | 2026-10-16 | t |
 | 16025991 | 2026-10-05T00:00:00.000 | 2026-10-05 | 2026-10-06T00:00:00.000 | 2026-10-06 | t |
+| 8433853 | *(vacío)* | NULL | 2072-05-16T23:59:00.000 | NULL | t |
 | 2579269 | 2018-08-02T08:00:00.000 | 2018-08-02 | 8201-12-21T23:59:00.000 | NULL | t |
-| 11151640 | 2024-03-12T00:00:00.000 | 2024-03-12 | 2924-12-31T23:59:00.000 | NULL | t |
 | 11329617 | 2024-04-17T00:00:00.000 | 2024-04-17 | 2924-08-12T00:00:00.000 | NULL | t |
+| 13237634 | *(vacío)* | NULL | 2205-08-18T00:00:00.000 | NULL | t |
 
 ### 6.3 Valores de relleno (R6)
 
 | id_fila | valor_bronce | valor_plata | flag_valor_relleno |
 |---:|---:|---|---|
-| 3641364 | 999999999 | NULL | t |
-| 14661561 | 99999999 | NULL | t |
+| 14661562 | 99999999 | NULL | t |
+| 14663804 | 99999999 | NULL | t |
 | 14688564 | 99999999 | NULL | t |
+| 15512886 | 99999999 | NULL | t |
+| 15507013 | 99999999 | NULL | t |
 | 15617058 | 99999999 | NULL | t |
+| 15869220 | 999999999 | NULL | t |
 | 1399872 | 99999999 | NULL | t |
-| 998460 | 99999999 | NULL | t |
-| 2863740 | 999999999 | NULL | t |
-| 2643284 | 99999999 | NULL | t |
-| 2867025 | 99999999 | NULL | t |
-| 3042923 | 99999999 | NULL | t |
+| 1390064 | 999999999 | NULL | t |
+| 1473915 | 99999999 | NULL | t |
 
 ### 6.4 NIT (R8)
 
 | id_fila | nit_bronce | nit_plata |
 |---:|---|---|
-| 4014853 | NO DEFINIDO | NULL |
-| 4097191 | 891801770-3 | 891801770 |
-| 3319352 | 899999034-1 | 899999034 |
-| 3641046 | 890503483-2 | 890503483 |
-| 3754118 | NO DEFINIDO | NULL |
-| 4135684 | 890905211-1 | 890905211 |
-| 3873647 | 800099084-6 | 800099084 |
-| 3885860 | 890204646-3 | 890204646 |
-| 3287949 | 899999034-1 | 899999034 |
-| 3988396 | 800065593-7 | 800065593 |
+| 2662904 | NO DEFINIDO | NULL |
+| 2710175 | NO DEFINIDO | NULL |
+| 2229955 | NO DEFINIDO | NULL |
+| 2427121 | 890801143-1 | 890801143 |
+| 2713669 | 890680154-1 | 890680154 |
+| 2718775 | NO DEFINIDO | NULL |
+| 2649179 | NO DEFINIDO | NULL |
+| 2572809 | 800022618-8 | 800022618 |
+| 2714988 | 890680154-1 | 890680154 |
+| 1752776 | 899999034-1 | 899999034 |
 
 ### 6.5 Valor repetido repartido (R7)
 
@@ -225,6 +228,6 @@ Se compara `billones_sin_atipicos` con las cifras oficiales: ≈ 100 billones en
 | 13461723 | DEPARTAMENTO DE SANTANDER | INSTITUTO FINANCIERO PARA EL DESARROLLO DE SANTANDER | 2.600.000.000.000,00 | t | t |
 | 13915044 | RNEC | UNION TEMPORAL INTEGRACION LOGISTICA ELECTORAL 2026 | 2.553.311.282.500,00 | t | f |
 | 13915039 | RNEC | UNION TEMPORAL INTEGRACION LOGISTICA ELECTORAL 2026 | 2.552.978.539.300,00 | t | f |
-| 13195461 | GOBERNACION DE BOYACA | YESID AVILA TORRES | 2.385.617.800.000,00 | t | f |
+| 13195464 | GOBERNACION DE BOYACA | YESID AVILA TORRES | 2.385.617.800.000,00 | t | f |
 | 13915041 | RNEC | UNION TEMPORAL INTEGRACION LOGISTICA ELECTORAL 2026 | 2.383.967.513.300,00 | t | f |
 | 13915040 | RNEC | UNION TEMPORAL INTEGRACION LOGISTICA ELECTORAL 2026 | 2.222.283.357.704,00 | t | f |
