@@ -17,7 +17,7 @@
 
 **Reparto:** José → RF-01 a RF-06 y RNF-01 a RNF-04 · Kerin → RF-07 a RF-13, RF-21, RF-22 y RNF-05 a RNF-07 · Isabella → RF-14 a RF-20 y RNF-08 a RNF-10.
 
-> **Cómo se organiza este documento.** Los **requerimientos de negocio (RQ)** dicen qué necesita saber un usuario del dato. Los **requerimientos funcionales (RF)** dicen qué debe hacer el sistema para entregarlo. Los **no funcionales (RNF)** dicen con qué calidad. **El modelo en estrella se deriva de los RQ** (sección 1.2).
+> **Cómo se organiza este documento.** Los **requerimientos de negocio (RQ)** dicen qué necesita saber un usuario del dato. Los **requerimientos funcionales (RF)** dicen qué debe hacer el sistema para entregarlo. Los **no funcionales (RNF)** dicen con qué calidad. **El modelo en estrella se deriva de los RQ** (sección 1.3).
 
 ---
 
@@ -52,15 +52,15 @@
 |---|---|---|
 | RQ01 | `dim_entidad` + `dim_tiempo` | RF-07 |
 | RQ02 | `dim_tiempo` (año) | RF-10 |
-| RQ03 | `dim_entidad` + `es_competitiva` de `dim_clasificacion_contrato` | RF-08 |
+| RQ03 | `dim_entidad` + `es_competitiva` de `dim_contrato` | RF-08 |
 | RQ04 | `dim_proveedor` y `COUNT(DISTINCT sk_entidad)` | RF-07 |
 | RQ05 | `dim_ubicacion` | RF-11 |
 | RQ06 | `duracion_dias` por `tipo_contrato` y `modalidad` | RF-09 |
 | RQ07 | `nivel_entidad` de `dim_entidad` | RF-07 |
-| RQ08 | `tipo_contrato` de `dim_clasificacion_contrato` | RF-07 |
+| RQ08 | `tipo_contrato` de `dim_contrato` | RF-07 |
 | RQ09 | mes y trimestre de `dim_tiempo` | RF-10 |
 | RQ10 | `tipo_persona` de `dim_proveedor` | RF-12 |
-| RQ11 | `origen` de `dim_clasificacion_contrato`, por año | RF-10 |
+| RQ11 | `origen` de `dim_contrato`, por año | RF-10 |
 | RQ12 | `es_atipico` por entidad | RF-07, RF-19 |
 | RQ13 | `agrupacion_estado` | RF-22 |
 | RQ14 | medida `valor_gastado` | RF-21 |
@@ -77,7 +77,7 @@
 | `dim_entidad` | `sk_entidad`, `codigo_entidad` (clave natural), nit, nombre, nivel | RQ01, RQ03, RQ07 |
 | `dim_ubicacion` | `sk_ubicacion`, departamento, municipio | RQ05 |
 | `dim_proveedor` | `sk_proveedor`, `documento_proveedor` (clave natural), nombre, **`tipo_persona`** | RQ04, RQ10 |
-| `dim_clasificacion_contrato` | `sk_clasificacion`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
+| `dim_contrato` | `sk_contrato`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
 
 **Hecho:** llaves foráneas a las 5 dimensiones (tiempo con 3 roles: firma, inicio y fin); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
 
@@ -127,7 +127,7 @@ El sistema debe:
 
 El sistema debe construir el modelo de la sección 1.3 a partir de `silver.contratos`:
 
-- **1 tabla de hechos** `fact_contrato` y **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_clasificacion_contrato`).
+- **1 tabla de hechos** `fact_contrato` y **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`).
 - Claves sustitutas enteras en las 5 dimensiones, claves naturales con `UNIQUE`, y llaves foráneas explícitas.
 - Registro **-1 «NO REGISTRA»** en cada dimensión; en `dim_tiempo`, «SIN FECHA».
 - `fact_contrato` particionada por rango sobre `sk_fecha_firma`, **13 particiones**. La clave primaria es compuesta (`sk_fecha_firma`, `id_fila`) porque PostgreSQL exige que incluya la clave de partición.
@@ -227,7 +227,7 @@ El sistema debe comparar el conteo cargado contra la fuente y reportar discrepan
 
 ### RF-15 — Panel de KPIs globales
 
-Power BI debe mostrar total de versiones de contrato (13.005.402), total de contratos distintos (554.063 de ellos con versiones), valor contratado, valor gastado, número de entidades, de proveedores y de departamentos.
+Power BI debe mostrar total de versiones de contrato (13.005.402), total de contratos distintos (12.147.523, de los cuales 554.063 tienen versiones), valor contratado, valor gastado, número de entidades, de proveedores y de departamentos.
 
 > Los recuentos de entidades, proveedores y municipios son `count(distinct …)` sobre texto libre y **se miden después de construir oro**; no se estiman.
 
