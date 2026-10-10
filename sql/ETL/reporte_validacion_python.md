@@ -1,17 +1,17 @@
 # Validación independiente de la capa plata (Python)
 
-Fecha: 2026-10-04 16:51 · Duración: 13.5 min · Muestra: 0.8 % de plata, semilla 42
+Fecha: 2026-10-10 18:32 · Duración: 6.5 min · Muestra: 0.8 % de plata, semilla 42
 
 Tabla de tildes y símbolos: unaccent.rules del servidor (2661 caracteres)
 
-**42 de 42 pruebas en OK**
+**43 de 43 pruebas en OK**
 
 | Prueba | Encontrados | Estado | Detalle |
 |---|---|---|---|
 | A1. Filas en bronce | 16.025.993 | OK | esperado 16.025.993 |
 | A2. Filas en plata | 13.005.402 | OK | esperado 13.005.402 |
 | A3. Filas de plata que no vienen de bronce | 0 | OK |  |
-| B0. Filas revisadas en la muestra | 104.172 | OK |  |
+| B0. Filas revisadas en la muestra | 104.356 | OK |  |
 | B. origen: plata ≠ Python | 0 | OK | (R1) |
 | B. id_contrato: plata ≠ Python | 0 | OK | (-) |
 | B. id_proceso: plata ≠ Python | 0 | OK | (-) |
@@ -24,14 +24,14 @@ Tabla de tildes y símbolos: unaccent.rules del servidor (2661 caracteres)
 | B. estado_proceso: plata ≠ Python | 0 | OK | (R1-R2) |
 | B. modalidad: plata ≠ Python | 0 | OK | (R1-R3) |
 | B. tipo_contrato: plata ≠ Python | 0 | OK | (R1-R3) |
-| B. objeto_contrato: plata ≠ Python | 0 | OK | (R1) · 18 difieren solo en símbolos especiales (aceptable) |
+| B. objeto_contrato: plata ≠ Python | 0 | OK | (R1) · 10 difieren solo en símbolos especiales (aceptable) |
 | B. fecha_firma: plata ≠ Python | 0 | OK | (R4) |
 | B. fecha_inicio: plata ≠ Python | 0 | OK | (R4) |
 | B. fecha_fin: plata ≠ Python | 0 | OK | (R4) |
 | B. valor_contrato: plata ≠ Python | 0 | OK | (R6) |
 | B. tipo_doc_proveedor: plata ≠ Python | 0 | OK | (R1-R2) |
 | B. documento_proveedor: plata ≠ Python | 0 | OK | (R8) |
-| B. nombre_proveedor: plata ≠ Python | 0 | OK | (R1) · 2 difieren solo en símbolos especiales (aceptable) |
+| B. nombre_proveedor: plata ≠ Python | 0 | OK | (R1) |
 | B. url_contrato: plata ≠ Python | 0 | OK | (-) |
 | B. flag_fecha_invalida: plata ≠ Python | 0 | OK | (R4) |
 | B. flag_fechas_incoherentes: plata ≠ Python | 0 | OK | (R4) |
@@ -44,6 +44,7 @@ Tabla de tildes y símbolos: unaccent.rules del servidor (2661 caracteres)
 | B. NIT o documento con algo distinto de dígitos | 0 | OK |  |
 | C1. Filas repetidas en plata | 0 | OK |  |
 | C2. Filas eliminadas sin gemela en plata | 0 | OK | de 1000 revisadas (0 omitidas por no tener número de contrato o proceso) |
+| C3. Sobreviviente con estado de menor rango que el eliminado | 0 | OK | de 1000 pares revisados (R5 conserva el estado de mayor avance) |
 | D. Contratos cuya suma ajustada no es el promedio de sus versiones | 0 | OK | de 2.000 contratos revisados |
 | E. Extremos marcados | 10 | OK | esperado 10 |
 | E. Extremos sin excluir o por debajo de 1 billón | 0 | OK |  |

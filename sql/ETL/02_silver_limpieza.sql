@@ -4,6 +4,16 @@
 -- Requiere: bronze.secop_raw cargada (01_cargar_bronce.sql)
 -- Ejecutar en psql:  \i 02_silver_limpieza.sql
 -- =====================================================================
+-- CAMBIO EN R5 (correccion tras la revision del profesor):
+--   Antes, entre filas duplicadas se conservaba la de menor id_fila.
+--   Ahora se conserva la de MAYOR AVANCE del ciclo de vida del contrato
+--   (silver.rango_estado) y, a igualdad de estado, la de menor id_fila.
+--   Motivo: en bronce hay 1.169.445 grupos con la misma llave de R5 y
+--   estados distintos (avances del ciclo de vida, no contradicciones), y
+--   el dataset no trae fecha de modificacion: id_fila no dice cual es el
+--   estado vigente. El numero de filas de plata NO cambia (13.005.402);
+--   cambia cual fila sobrevive.
+-- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
@@ -94,6 +104,29 @@ BEGIN
     END IF;
     RETURN d;
 END $$;
+
+-- R5 (nueva). Rango del estado en el ciclo de vida del contrato.
+--   Lo usa la deduplicacion para conservar, entre filas duplicadas, la de
+--   mayor avance. REGLA DE NEGOCIO PROVISIONAL, no medicion: el orden de
+--   SUSPENDIDO y CEDIDO es juicio del equipo. 0 = estado desconocido o NULL
+--   (pierde frente a cualquier estado conocido).
+--   Es la misma logica que gold.rango_estado (docs/requerimientos.md RF-22),
+--   definida aqui para que plata no dependa de oro.
+--   Entrada: estado ya pasado por limpiar_texto() (mayusculas, sin tildes).
+CREATE OR REPLACE FUNCTION silver.rango_estado(e TEXT) RETURNS SMALLINT
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE
+        WHEN e IN ('BORRADOR', 'EN APROBACION', 'ENVIADO PROVEEDOR',
+                   'CONVOCADO', 'ADJUDICADO')                          THEN 1
+        WHEN e IN ('APROBADO', 'ACTIVO', 'CELEBRADO')                  THEN 2
+        WHEN e IN ('EN EJECUCION', 'MODIFICADO', 'PRORROGADO')         THEN 3
+        WHEN e IN ('SUSPENDIDO', 'CEDIDO')                             THEN 4
+        WHEN e IN ('TERMINADO', 'TERMINADO SIN LIQUIDAR', 'LIQUIDADO') THEN 5
+        WHEN e = 'CERRADO'                                             THEN 6
+        WHEN e = 'CANCELADO' OR e LIKE 'TERMINADO ANORMALMENTE%'       THEN 7
+        ELSE 0
+    END::smallint
+$$;
 
 
 -- ---------------------------------------------------------------------
@@ -214,10 +247,13 @@ validado AS (                                      -- R4, R6: lo imposible pasa 
     FROM limpio l
 ),
 dedup AS (                                         -- R5: duplicados → se conserva 1
+    -- Se conserva la fila de MAYOR AVANCE del ciclo de vida (rango_estado DESC);
+    -- a igualdad de estado, la de menor id_fila. La llave del PARTITION BY no
+    -- cambia, asi que el numero de filas de plata es el mismo de antes.
     SELECT v.*,
         ROW_NUMBER() OVER (PARTITION BY origen, id_contrato, id_proceso, documento_proveedor,
                                         valor_ok, firma_ok
-                           ORDER BY id_fila) AS rn
+                           ORDER BY silver.rango_estado(estado_proceso) DESC, id_fila) AS rn
     FROM validado v
 )
 SELECT
