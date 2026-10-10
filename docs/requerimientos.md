@@ -144,11 +144,11 @@ El sistema debe permitir medir valor y número de contratos por entidad y año (
 
 **Criterio de aceptación:** las consultas devuelven el top 20 de entidades y de proveedores con su porcentaje acumulado. Todo valor monetario usa `valor_ajustado` excluyendo `es_atipico`.
 
-### RF-08 — Contratación directa y mínima cuantía
+### RF-08 — Contratación directa, régimen especial y mínima cuantía
 
-El sistema debe calcular, por entidad, el porcentaje de contratos por modalidades no competitivas (`es_competitiva = false`) (RQ03) y permitir detectar posibles fraccionamientos: entidades con muchos contratos de mínima cuantía al mismo proveedor en ventanas de 30 y 90 días.
+El sistema debe calcular, por entidad, el porcentaje de contratos por modalidades **no competitivas** (`es_competitiva = false`): contratación directa, otras formas de contratación directa y régimen especial (RQ03). Debe poder mostrarse desglosado por modalidad, para distinguir cuánto es contratación directa y cuánto régimen especial. También debe permitir detectar posibles fraccionamientos: entidades con muchos contratos de mínima cuantía al mismo proveedor en ventanas de 30 y 90 días.
 
-**Criterio de aceptación:** la consulta devuelve el ranking de entidades por porcentaje de contratación directa y el listado de entidad-proveedor con mayor número de contratos de mínima cuantía por ventana.
+**Criterio de aceptación:** la consulta devuelve el ranking de entidades por porcentaje no competitivo, con su desglose por modalidad, y el listado de entidad-proveedor con mayor número de contratos de mínima cuantía por ventana.
 
 ### RF-09 — Duración de los contratos
 
