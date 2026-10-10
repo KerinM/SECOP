@@ -846,9 +846,9 @@ SELECT
                                                 INTERVAL '1 day')::date AS f
                          EXCEPT SELECT fecha FROM gold.dim_tiempo) h) = 0 AS sin_huecos;
 
-\echo '-- 9.13 tipo_persona por FILA (esperado: NATURAL 10.372.323, JURIDICA'
-\echo '--      1.909.481, NO CLASIFICADO 723.598; suman 13.005.402). Una'
-\echo '--      diferencia pequena indica documentos con tipos contradictorios:'
+\echo '-- 9.13 tipo_persona por FILA (esperado: NATURAL 9.979.286, JURIDICA'
+\echo '--      2.903.235, NO CLASIFICADO 122.881; suman 13.005.402). La clasificacion'
+\echo '--      es por documento: JURIDICA gana sobre NATURAL y NATURAL sobre NO CLASIFICADO:'
 SELECT p.tipo_persona, count(*) AS filas
 FROM gold.fact_contrato f
 JOIN gold.dim_proveedor p ON p.sk_proveedor = f.sk_proveedor
