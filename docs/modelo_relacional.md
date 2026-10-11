@@ -387,14 +387,58 @@ JOIN bronze.secop_raw  b USING (id_fila);
 
 ## 11. Vistas de consumo (RF-13)
 
+Power BI se conecta **solo** a `gold.v_*` y `gold.mv_*`. Todas aplican el mismo filtro de dinero: `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1`. Por eso los totales cuadran entre sí (verificación V4 de `sql/04_vistas.sql`: el valor total es idéntico en las 6 fuentes).
+
+**Por qué el filtro vive en la vista y no en el tablero:** un filtro de Power BI se desactiva con un clic. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado.
+
+### 11.1 Vistas de detalle (`sql/02_modelo_gold.sql`)
+
 | Vista | Para qué | Filtra |
 |---|---|---|
 | `gold.v_contratos` | Auditoría y QA. Todas las versiones con las banderas a la vista | Nada |
-| `gold.v_contratos_validos` | **Origen único de Power BI** | `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1` |
+| `gold.v_contratos_validos` | Detalle a nivel de versión | `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1` |
 
-**Por qué el filtro vive en la vista:** un filtro de Power BI se desactiva con un clic. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado.
+### 11.2 Vistas materializadas (`sql/04_vistas.sql`)
 
-Las vistas de agregación para el tablero (KPIs, evolución, geografía, proveedores, calidad) están en `sql/04_vistas.sql` y se refrescan con `CALL gold.refrescar_vistas()`. **Pendiente de actualizar** al modelo de 5 dimensiones.
+Son **8**, se pueblan leyendo `gold.fact_contrato` y no dependen entre sí. Se refrescan con `CALL gold.refrescar_vistas()` tras cada carga de oro.
+
+| Materializada | Grano | Responde |
+|---|---|---|
+| `mv_resumen_contratos` | año × nivel × tipo × modalidad × estado × origen × tipo de persona | RQ02, RQ07, RQ08, RQ10, RQ11, RQ13, RQ14 |
+| `mv_serie_mensual` | año × trimestre × mes × tipo × modalidad | RQ09 |
+| `mv_entidad_resumen` | entidad × año × modalidad | RQ01, RQ03, RQ12 |
+| `mv_geografia` | año × departamento × municipio | RQ05 |
+| `mv_proveedor_valor` | un proveedor | RQ04 |
+| `mv_duracion` | tipo × modalidad (percentiles) | RQ06 |
+| `mv_kpis_globales` | 1 fila | KPIs del panel principal |
+| `mv_calidad_datos` | 18 indicadores | Reporte de calidad (RF-19) |
+
+`mv_entidad_resumen` y `mv_calidad_datos` ven las filas **sin filtrar**, porque ahí es donde se cuentan los atípicos (RQ12) y las anomalías.
+
+### 11.3 Vistas normales sobre las materializadas (`sql/04_vistas.sql`)
+
+Son **14**. Las que agrupan por año llevan `es_anio_parcial`, que marca el último año presente en los datos (2026, corte 29/09/2026). La variación interanual de 2026 se calcula igual, pero compara un año incompleto.
+
+| Vista | Responde |
+|---|---|
+| `v_resumen_contratos` | Cubo base con `es_anio_parcial` |
+| `v_evolucion_anual` | RQ02: serie anual con variación interanual |
+| `v_estacionalidad` | RQ09: mes y trimestre |
+| `v_geografia_departamento` | RQ05: departamentos, con participación sobre el total del año |
+| `v_nivel_entidad` | RQ07: nacional frente a territorial |
+| `v_tipo_contrato` | RQ08: valor total y promedio por versión |
+| `v_participacion_origen` | RQ11: SECOP I frente a SECOP II |
+| `v_estado_contrato` | RQ13 y RQ14: estado y `valor_gastado` |
+| `v_perfil_tipo_persona` | RQ10: proporción por tipo de persona |
+| `v_no_competitiva_entidad` | RQ03: porcentaje no competitivo por entidad y año |
+| `v_no_competitiva_modalidad` | RQ03: desglose por modalidad (separa contratación directa de régimen especial) |
+| `v_atipicos_entidad` | RQ12: entidades con más versiones atípicas |
+| `v_top20_entidades` | RQ01: top 20 con porcentaje y acumulado |
+| `v_top20_proveedores` | RQ04: top 20 con entidades distintas, acumulado y HHI global |
+
+**Medido en la verificación de las vistas:** las 24 vistas (16 normales y 8 materializadas) son legibles por `secop_lectura`. 2018 suma 102,54 billones, y el top de proveedores lo abre el Consorcio Renting Blindados con 10,219 billones (0,887 % del total). El HHI global es 79,45 (escala 0-10.000).
+
+Los porcentajes de entidades con pocas versiones son ruidosos: para RQ03 hay que filtrar por `versiones_validas`.
 
 ---
 
