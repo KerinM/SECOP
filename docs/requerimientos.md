@@ -180,7 +180,7 @@ Regla de clasificación (**definición del proyecto, no medición**):
 | JURIDICA | NIT de persona jurídica, sociedades extranjeras, número de fideicomiso, y `NIT` genérico con documento de 9 dígitos que empieza por 8 o 9 (heurística que cubre el 94,5 % de los `NIT` genéricos) |
 | NO CLASIFICADO | NIT de extranjería, otro, nulos y `NIT` genérico que no cumple la heurística |
 
-**Criterio de aceptación:** `NATURAL` 9.979.286 + `JURIDICA` 2.903.235 + `NO CLASIFICADO` 122.881 = 13.005.402 filas (medido en oro); la suma de proporciones del valor es 100 %. La clasificación es **por documento**: si un mismo documento aparece con tipos distintos, JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO (83.765 documentos, 2.554.879 filas).
+**Criterio de aceptación:** `NATURAL` 9.979.421 + `JURIDICA` 2.907.838 + `NO CLASIFICADO` 118.143 = 13.005.402 filas (medido en oro); la suma de proporciones del valor es 100 %. La clasificación es **por documento**: si un mismo documento aparece con tipos distintos, JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO (83.363 documentos, 2.551.616 filas).
 
 ### RF-13 — Vistas de consumo reutilizables
 
@@ -255,7 +255,7 @@ Power BI debe presentar el top 20 de proveedores por valor, su participación ac
 
 El sistema debe reportar, con cantidad y porcentaje, las anomalías de la fuente: fechas imposibles (R4), duplicados eliminados (R5), valores en cero y de relleno (R6), valores repetidos y versiones (R7, R7b) y valores atípicos y extremos (R9, R9b).
 
-**Criterio de aceptación:** el reporte cubre todas las reglas y las cifras coinciden con `05_qa_silver.sql` y la validación independiente en Python (42/42).
+**Criterio de aceptación:** el reporte cubre todas las reglas y las cifras coinciden con `05_qa_silver.sql` y la validación independiente en Python (43/43).
 
 ### RF-20 — Filtros interactivos y capturas
 
@@ -303,7 +303,7 @@ La base se crea en UTF-8 con intercalación `es-CO-x-icu`. El texto dañado en e
 
 ### RNF-08 — Verificación automatizada
 Debe existir un procedimiento ejecutable tras cada carga que compruebe conteos por capa, vacíos por columna, duplicados, rango de fechas, huérfanos por FK y tamaño por tabla.
-**Verificación:** `05_qa_silver.sql` (42 pruebas) y `06_validacion_python.py` sin pruebas en REVISAR.
+**Verificación:** `05_qa_silver.sql` (18 validaciones automáticas) y `06_validacion_python.py` (43 pruebas) sin pruebas en REVISAR.
 
 ### RNF-09 — Documentación reproducible
 El README y `docs/` deben permitir a un tercero montar el entorno completo siguiendo los pasos, e interpretar el tablero y las capturas.
