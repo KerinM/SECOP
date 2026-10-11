@@ -399,11 +399,31 @@ El modelo anterior guardaba `contratos` y `valor_total` en cada dimensión, a pr
 
 - Eran derivables de los hechos y podían quedar **desactualizadas** sin que nadie lo notara, si se modificaba un hecho fuera de la carga.
 - Obligaban a seis `UPDATE` masivos en cada carga.
-- La necesidad de rendimiento se cubre mejor con **vistas materializadas** (`sql/04_vistas.sql`), que se refrescan con `CALL gold.refrescar_vistas()` y se pueden reconstruir sin tocar las dimensiones.
+- La necesidad de rendimiento se cubre mejor con **vistas materializadas**, que se reconstruyen sin tocar las dimensiones.
 
 Con esto las dimensiones solo contienen **atributos descriptivos**; todo número agregado vive en la capa de consumo.
 
-**Lo que sí se desnormaliza, y es deliberado:** dentro de `dim_contrato`, `es_competitiva`, `agrupacion_estado` y `rango_estado` se derivan de `modalidad` y `estado_proceso`. Es la práctica habitual de una dimensión en un esquema en estrella (se guardan los atributos ya calculados para agrupar sin funciones). Se recalculan con un `UPDATE` al final de la carga de dimensiones, así que no se desincronizan.
+### 13.1 La capa de consumo: 8 materializadas y 14 vistas
+
+`sql/04_vistas.sql` crea **8 vistas materializadas** (`mv_resumen_contratos`, `mv_serie_mensual`, `mv_entidad_resumen`, `mv_geografia`, `mv_proveedor_valor`, `mv_duracion`, `mv_kpis_globales`, `mv_calidad_datos`) y **14 vistas normales** que leen de ellas. El catálogo completo, con el RQ que responde cada una, está en `modelo_relacional.md` §11.
+
+Decisiones de diseño de esta capa:
+
+- **Las vistas leen de `gold.fact_contrato` con `JOIN` a las dimensiones**, no de `v_contratos_validos`. Así cada materializada agrupa directamente sobre el hecho, sin pasar por una vista de 13 millones de filas.
+- **Un único filtro de dinero** (`NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1`) en todas las medidas. Es lo que hace que el valor total sea idéntico en las 6 fuentes (verificación V4).
+- **Los atípicos se cuentan donde corresponde:** `mv_entidad_resumen` (RQ12) y `mv_calidad_datos` ven las filas sin filtrar.
+- **`es_anio_parcial` no esconde el año incompleto:** marca el último año presente en los datos (2026) y deja la variación interanual calculada.
+- **Las vistas por entidad o proveedor excluyen el miembro `-1`**; las agregaciones generales (año, geografía) lo conservan para que el total cuadre con las filas de plata.
+- **Los percentiles de duración** (`mv_duracion`) no se pueden sacar de un cubo ya agregado, por eso se calculan sobre las filas.
+- **Refresco:** `CALL gold.refrescar_vistas()`. Las 8 materializadas no dependen entre sí, así que el orden no importa. Las vistas normales no se refrescan.
+
+**Lección: `ORDER BY ... DESC` pone los `NULL` primero en PostgreSQL.** El primer ranking de proveedores salió con proveedores de valor `NULL` (8 en `mv_proveedor_valor`, medido) ocupando las 20 posiciones, con `billones`, `pct_del_total` y `pct_acumulado` vacíos. Se corrigió con `ORDER BY valor_ajustado DESC NULLS LAST`. Cualquier `top N` sobre una medida que pueda ser `NULL` debe llevar `NULLS LAST`.
+
+### 13.2 Lo que sí se desnormaliza, y es deliberado
+
+Dentro de `dim_contrato`, `es_competitiva`, `agrupacion_estado` y `rango_estado` se derivan de `modalidad` y `estado_proceso`. Es la práctica habitual de una dimensión en un esquema en estrella (se guardan los atributos ya calculados para agrupar sin funciones). Se recalculan con un `UPDATE` al final de la carga de dimensiones, así que no se desincronizan.
+
+---
 
 ---
 
