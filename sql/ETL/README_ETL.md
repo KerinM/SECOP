@@ -27,16 +27,19 @@ arquitectura Medallón, en PostgreSQL 18.
 | 1 | `01_cargar_bronce.sql` | Bronce | **psql** (consola), en la carpeta de los CSV | 30–60 min |
 | 2 | `01b_trazabilidad_bronce.sql` | Bronce | Query Tool, bloque por bloque | ≈ 1 h 15 min |
 | 3 | `02_silver_limpieza.sql` | Plata | psql o PSQL Tool de pgAdmin | 1,5–2 h |
-| 4 | `02c_correccion_valores.sql` | Plata | Query Tool, paso por paso | 20–60 min |
+| 4 | `02c_correccion_valores.sql` | Plata | psql o Query Tool, paso por paso | 20–60 min |
 | 5 | `eda_perfilado.sql` | Exploración | Query Tool | 5–20 min |
-| 6 | `05_qa_silver.sql` | Pruebas | Query Tool, prueba por prueba | ≈ 15 min |
-| 7 | `06_validacion_python.py` | Validación independiente | Terminal: `python 06_validacion_python.py` | 10–25 min |
+| 6 | `05_qa_silver.sql` | Pruebas | psql o Query Tool, prueba por prueba | ≈ 15 min |
+| 7 | `06_validacion_python.py` | Validación independiente | Terminal: `python sql\ETL\06_validacion_python.py` | 7–25 min |
 
 `02b_correccion_barras.sql` **solo se corre en una base que ya tenga plata creada con la versión
 anterior de la limpieza.** Si se corre `02_silver_limpieza.sql` desde cero, esa corrección ya va incluida.
 
 `02c_correccion_valores.sql` **siempre se corre** después de `02_silver_limpieza.sql`: sin él, las sumas de dinero
 salen infladas.
+
+`02_silver_limpieza.sql` hace `DROP TABLE IF EXISTS silver.contratos` y la recrea: bronce no se toca,
+pero hay que volver a correr `02c` y reconstruir oro después.
 
 ---
 
@@ -72,7 +75,7 @@ salen infladas.
 | **Total** | **16.025.993** |
 
 ### `02_silver_limpieza.sql`: limpieza (capa plata)
-- Crea las funciones de limpieza en el esquema `silver`.
+- Crea las funciones de limpieza en el esquema `silver`, incluida `silver.rango_estado` (ranking del ciclo de vida que usa R5).
 - Crea `silver.homologacion`, el catálogo de nombres equivalentes (17 reglas).
 - Crea `silver.contratos` aplicando las 9 reglas de calidad.
 - **Resultado:** 13.005.402 filas en plata.
@@ -83,7 +86,7 @@ salen infladas.
 | R2 | Nulos disfrazados ("NO DEFINIDO", "N/A", "SIN DESCRIPCION"…) pasan a NULL | No |
 | R3 | Homologación: unifica nombres escritos distinto (ej. "DISTRITO CAPITAL DE BOGOTA" → "BOGOTA D.C.") | No |
 | R4 | Fechas imposibles (antes de 2000, después de 2060, o firma posterior a la descarga) pasan a NULL y se marcan | No |
-| R5 | Elimina duplicados exactos (mismo origen, contrato, proceso, proveedor, valor y fecha de firma) | **Sí** |
+| R5 | Elimina duplicados exactos (mismo origen, contrato, proceso, proveedor, valor y fecha de firma) y **conserva la fila con el estado de mayor avance del ciclo de vida** (a igualdad, la de menor `id_fila`) | **Sí** |
 | R6 | Valores en cero y valores de relleno (8 o más nueves) se marcan | No |
 | R7 | Si un mismo contrato repite su valor en varias filas, el valor se reparte (`valor_ajustado`) | No |
 | R8 | NIT y documentos solo con dígitos; el NIT se valida con el dígito de verificación de la DIAN | No |
@@ -91,10 +94,44 @@ salen infladas.
 | R7b | Versiones de un contrato SECOP II: se cuenta una vez, con el promedio de sus versiones (`02c`) | No |
 | R9b | Valores imposibles para su entidad (> 1 billón y > 100.000 veces la mediana de la entidad) se marcan como atípicos (`02c`) | No |
 
+**Cómo decide R5 qué fila conserva.** El dataset no trae la fecha de cada modificación, así que `id_fila`
+no sirve para saber cuál es el estado vigente. En bronce hay **1.169.445 grupos** idénticos en la llave de R5
+pero con estados distintos (ej. Cerrado frente a En ejecución: 292.076 grupos). Son avances del ciclo de vida,
+no contradicciones. R5 ordena los estados con `silver.rango_estado` y conserva el de mayor rango:
+
+| Rango | Estados |
+|---:|---|
+| 1 | BORRADOR, EN APROBACION, ENVIADO PROVEEDOR, CONVOCADO, ADJUDICADO |
+| 2 | APROBADO, ACTIVO, CELEBRADO |
+| 3 | EN EJECUCION, MODIFICADO, PRORROGADO |
+| 4 | SUSPENDIDO, CEDIDO |
+| 5 | TERMINADO, TERMINADO SIN LIQUIDAR, LIQUIDADO |
+| 6 | CERRADO |
+| 7 | CANCELADO, TERMINADO ANORMALMENTE… |
+| 0 | Estado desconocido o nulo |
+
+Es una **regla de negocio provisional**. Está respaldada por los datos que CERRADO supera a EN EJECUCION y
+MODIFICADO, y TERMINADO supera a ambos. **El orden de SUSPENDIDO y CEDIDO es juicio del equipo, no una medición.**
+El mismo ranking existe en `gold.rango_estado`; si cambia en uno, hay que cambiarlo en el otro.
+
+**Efecto medido en SECOP II** (comparado con la R5 anterior, que conservaba el menor `id_fila`):
+
+| Estado | Antes | Ahora |
+|---|---:|---:|
+| CERRADO | 1.174.268 | 1.674.727 |
+| TERMINADO | 644.692 | 776.995 |
+| EN EJECUCION | 1.902.281 | 1.570.664 |
+| MODIFICADO | 1.548.187 | 1.366.712 |
+
+El conteo total no cambia (13.005.402) porque la llave de R5 es la misma; cambia qué fila sobrevive. Por eso
+las fechas de algunas filas se movieron: en 173.178 de esos grupos las filas duplicadas también difieren en
+`fecha_fin` (14,8 %). Los valores monetarios no cambian: los totales por año son idénticos a los de antes.
+
 ### `02b_correccion_barras.sql`: corrección puntual
 - Las pruebas de calidad encontraron **538 nombres de proveedor** con una barra `|` suelta al inicio o al final, que venía desde SECOP (ej. `ZARETH OROZCO ESPINOSA|`). La versión anterior de la regla R1 no la quitaba.
 - Actualiza la función `limpiar_texto` y corrige **solo esas 538 filas**, sin rehacer toda la limpieza.
 - **Resultado esperado:** `UPDATE 538`. Si se corre otra vez, `UPDATE 0`.
+- Con la versión actual de `02_silver_limpieza.sql` ya no hace falta.
 
 ### `02c_correccion_valores.sql`: corrección de valores
 - **Por qué existe:** al comparar los totales por año con las cifras oficiales de Colombia Compra Eficiente
@@ -108,6 +145,7 @@ salen infladas.
   solo contra el mismo tipo de contrato. Ej.: la Alcaldía de Valledupar con un contrato de $25 billones con
   un banco. Se marcan `flag_valor_extremo` y `flag_valor_atipico`; el valor original no se toca.
 - Cada paso tiene un conteo previo; el UPDATE debe dar el mismo número. Si se corre otra vez, da `UPDATE 0`.
+- **Resultado:** `UPDATE 1317098` (R7b) y `UPDATE 10` (R9b).
 
 ### `eda_perfilado.sql`: exploración de bronce
 - Consultas que **no cambian nada**. Muestran los problemas que justificaron las reglas: variantes de escritura, porcentaje de vacíos, rangos de fechas y valores, y contratos repetidos.
@@ -115,15 +153,16 @@ salen infladas.
 
 ### `05_qa_silver.sql`: pruebas de calidad de plata
 - Consultas que **no cambian nada**. Verifican que plata cumple las reglas.
+- El resultado completo está en `resultado_qa.md`.
 
 | Prueba | Qué revisa | Resultado obtenido |
 |---|---|---|
 | 1. Validaciones | 14 revisiones automáticas, una por regla | **14 de 14 en OK** |
 | 2. Duplicados | Que no quede ningún contrato repetido | **0** |
-| 3. Completitud | % de vacíos por columna | municipio 10,85 %, fecha_inicio 6,88 %, nit_entidad 4,00 %; el resto < 0,4 % |
+| 3. Completitud | % de vacíos por columna | municipio 10,89 %, fecha_inicio 5,94 %, nit_entidad 4,00 %; el resto < 0,5 % |
 | 4. Banderas | Filas marcadas por cada regla | ver tabla de hallazgos |
 | 5. Categorías | Que los nombres quedaron unificados | nivel_entidad: de 7 variantes a 3 + vacío |
-| 6. Antes y después | Ejemplos reales de bronce al lado de plata | ver capturas en `docs/` |
+| 6. Antes y después | Ejemplos reales de bronce al lado de plata | ver `resultado_qa.md` |
 | 7. Corrección de valores | Versiones sin ajustar, sumas fuera de rango y extremos sin marcar | **4 de 4 en OK** |
 | 8. Versiones = mismo contrato | Que las versiones de R7b tengan el mismo proceso, fecha de firma y entidad | 554.063 contratos: 0 con distinta entidad, 116 (0,02 %) con distinta fecha de firma, 4.720 (0,85 %) con distinto número de proceso |
 | 9. Totales por año | Totales en billones frente a las cifras oficiales, y los 10 valores más altos de un año | 2018: 102,54 (oficial ≈ 100); 2023: 125,33 (oficial ≈ 111 a octubre) |
@@ -131,9 +170,10 @@ salen infladas.
 ### `06_validacion_python.py`: validación independiente con Python
 - Revisa la plata con **otra herramienta**, sin usar las funciones de limpieza de la base. Solo lee: abre la conexión en modo de solo lectura.
 - Toma una muestra al azar del 0,8 % de plata (≈ 100.000 filas), trae la fila original de bronce, **la vuelve a limpiar en Python** con las mismas reglas (R1–R8) y compara columna por columna.
-- Además: conteos, filas eliminadas por R5 con su gemela en plata, promedio de versiones (R7b), extremos (R9b) y totales por año frente a las cifras oficiales.
+- Además: conteos; filas eliminadas por R5, comprobando que su gemela sigue en plata (C2) y que el sobreviviente tiene un estado de rango mayor o igual al eliminado (C3); promedio de versiones (R7b); extremos (R9b); y totales por año frente a las cifras oficiales.
 - Para quitar tildes y símbolos lee del servidor la tabla de caracteres de `unaccent` (`unaccent.rules`) y la aplica con código propio. Así `Nº` → `NO`, `7ª` → `7A`, `½` → ` 1/2` quedan igual que en PostgreSQL.
 - Se probó dañando la plata a propósito en 8 puntos distintos, y el script detectó los 8.
+- **Resultado:** **43 de 43 pruebas en OK** (6,5 min). Muestra de 104.356 filas, 0 diferencias en las 25 columnas comparadas; C2 y C3 en 0 sobre 1.000 filas eliminadas.
 - Requiere: `pip install pandas psycopg2-binary`. Deja el resultado en `reporte_validacion_python.md`.
 - El ETL se hizo en SQL; Python se usa solo para **validar**.
 
@@ -143,17 +183,19 @@ salen infladas.
 
 | Hallazgo | Filas | Qué se hizo |
 |---|---|---|
-| Duplicados exactos | 3.020.591 | Eliminados en plata (R5); siguen en bronce |
+| Duplicados exactos | 3.020.591 | Eliminados en plata (R5), conservando el estado de mayor avance; siguen en bronce |
+| Grupos duplicados con estados distintos | 1.169.445 | R5 conserva el de mayor rango |
 | Textos con ` \| ` interno | 171 | Se conservan: así vienen de SECOP |
 | Barras sueltas en nombre de proveedor | 538 | Corregidas con `02b` (R1) |
 | Valor repetido en varias filas | 148.035 | Valor repartido en `valor_ajustado` (R7) |
 | Valor en cero | 80.137 | Marcados (R6) |
-| Fecha de fin antes del inicio | 664 | Marcados (R4) |
-| Fechas imposibles | 39 | Pasan a NULL y se marcan (R4) |
+| Fecha de fin antes del inicio | 616 | Marcados (R4) |
+| Filas con alguna fecha imposible | 29 | La fecha pasa a NULL y la fila se marca (R4) |
 | Valores de relleno (99999999…) | 94 | Pasan a NULL y se marcan (R6) |
-| Valores atípicos | 33.928 | Marcados, no borrados (R9) |
+| Valores atípicos por tipo de contrato | 33.929 | Marcados, no borrados (R9) |
 | Versiones de un mismo contrato (SECOP II) | 1.317.098 filas / 554.063 contratos | Se cuenta una vez con el promedio (R7b) |
 | Valores imposibles para su entidad | 10 | Marcados como atípicos (R9b) |
+| **Total de atípicos (R9 + R9b)** | **33.939** | Excluidos de las sumas de dinero |
 
 Ejemplo de valor imposible: en 2025, el Instituto de Recreación y Deporte de Pasto registra un contrato con la
 Fundación Pilto por **$944 billones**, más que todo el presupuesto nacional de un año. Por eso el total de 2025
@@ -167,6 +209,7 @@ Sin ajustar, su valor sumaba $3.034.703.000.000; con el ajuste suma $5.858.500.0
 - La regla R6 asume que 8 o más nueves son un valor de relleno. Un contrato real de $99.999.999 quedaría marcado; son 94 filas y el valor original se conserva en bronce.
 - La homologación (R3) solo cubre las 17 equivalencias del catálogo.
 - Algunos textos ya vienen **dañados desde SECOP** por un problema de codificación: la Ñ llega como `ï¿½` (ej. `NIï¿½O` en vez de `NIÑO`). La limpieza no los puede reparar con seguridad, porque no se sabe qué letra era, y en plata quedan como `NII? 1/2O`. Solo afecta nombres y textos; no afecta valores, fechas ni llaves.
+- **R5 decide el estado vigente con un ranking provisional**, porque el dataset no trae fecha de modificación. El orden de SUSPENDIDO y CEDIDO (rango 4) es juicio del equipo, no una medición. Si dos filas duplicadas difieren en fechas, sobrevive la del estado más avanzado, no necesariamente la más reciente.
 - R7b usa el **promedio** de las versiones porque el dataset no dice cuál es la última. El valor real
   vigente puede ser algo mayor o menor; cada versión original se conserva en `valor_contrato`.
 - R9b puede marcar algunos convenios grandes reales (ej. una cofinanciación de TransMilenio con el

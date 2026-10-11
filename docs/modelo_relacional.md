@@ -48,7 +48,7 @@ Oro no limpia nada: toma `silver.contratos` y reorganiza la información en estr
 
 | Decisión de plata | Efecto en oro |
 |---|---|
-| Elimina duplicados exactos (16.025.993 → 13.005.402) | `fact_contrato` tiene una fila por versión, no por registro bruto |
+| Elimina duplicados exactos (16.025.993 → 13.005.402) y conserva el estado de mayor avance del ciclo de vida (R5) | `fact_contrato` tiene una fila por versión, no por registro bruto |
 | Calcula `valor_ajustado` por versiones | `SUM(valor_ajustado)` es correcto; `SUM(valor_contrato)` no |
 | Normaliza mayúsculas, tildes y barras (R1, R3) | Las claves naturales admiten `UNIQUE` plano |
 | Pone fechas imposibles en `NULL` con bandera (R4) | Las filas sin fecha caen en el registro `-1 SIN FECHA` |
@@ -303,26 +303,26 @@ Se usa con **tres roles** en el hecho (firma, inicio y fin). El entero sirve com
 
 ### 7.3 `dim_proveedor` y `tipo_persona`
 
-Clave natural `documento_proveedor` (ya normalizado en plata, R8). **2.181.587 filas** incluido el `-1` (medido, conteo real).
+Clave natural `documento_proveedor` (ya normalizado en plata, R8). **2.178.560 filas** incluido el `-1` (medido, conteo real).
 
 `tipo_persona` es una **regla de negocio** (`gold.clasificar_persona`), asignada **por documento**: si un mismo documento aparece con tipos distintos, **JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO**. El tipo de documento original **no se modela**.
 
-**Medido:** 83.765 documentos tienen tipos contradictorios (2.554.879 filas, 19,6 %). Reparto resultante por fila de `fact_contrato`:
+**Medido:** 83.363 documentos tienen tipos contradictorios (2.551.616 filas, 19,6 %). Reparto resultante por fila de `fact_contrato`:
 
 | tipo_persona | Filas |
 |---|---:|
-| NATURAL | 9.979.286 |
-| JURIDICA | 2.903.235 |
-| NO CLASIFICADO | 122.881 |
+| NATURAL | 9.979.421 |
+| JURIDICA | 2.907.838 |
+| NO CLASIFICADO | 118.143 |
 | **Total** | **13.005.402** |
 
-Clasificando cada fila por separado salía NATURAL 10.372.323, JURIDICA 1.909.481 y NO CLASIFICADO 723.598; la diferencia es el efecto de asignar un tipo único a cada documento. **Riesgo:** como JURIDICA gana, un único `NIT` mal registrado puede inflarla. La proporción de RQ10 debe presentarse como **por documento y con prioridad JURIDICA**.
+Clasificando cada fila por separado salía NATURAL 10.372.706, JURIDICA 1.956.752 y NO CLASIFICADO 675.944; la diferencia es el efecto de asignar un tipo único a cada documento. **Riesgo:** como JURIDICA gana, un único `NIT` mal registrado puede inflarla. La proporción de RQ10 debe presentarse como **por documento y con prioridad JURIDICA**.
 
 La clasificación del `NIT` genérico usa una **heurística** (9 dígitos que empiezan por 8 o 9 → JURIDICA), que cubre el 94,5 % de los 262.530 `NIT` genéricos (medido). La regla completa está en `requerimientos.md` RF-12.
 
 ### 7.4 `dim_contrato`
 
-Combina modalidad, tipo de contrato, estado y origen: **1.005 combinaciones** nuevas más el `-1` (medido). Atributos derivados (**definidos**):
+Combina modalidad, tipo de contrato, estado y origen: **1.014 combinaciones** nuevas más el `-1` (medido). Atributos derivados (**definidos**):
 
 - **`es_competitiva`:** FALSE para `CONTRATACION DIRECTA`, `OTRAS FORMAS DE CONTRATACION DIRECTA` y `REGIMEN ESPECIAL`; TRUE para el resto; NULL si la modalidad es desconocida. **El régimen especial cuenta como no competitivo** (decisión del grupo). Resultado medido: ≈ 89,7 % de las filas son no competitivas, por lo que el indicador debe mostrarse **desglosado por modalidad**.
 - **`agrupacion_estado` y `rango_estado`:** ciclo de vida en 7 grupos (1 PRECONTRACTUAL … 7 CANCELADO; 0 desconocido). **Regla provisional**; el orden de SUSPENDIDO y CEDIDO es juicio del equipo. El estado «ANULADO» **no existe** en la fuente: lo más cercano son 84 filas de cancelaciones (0,0006 %).
@@ -387,20 +387,64 @@ JOIN bronze.secop_raw  b USING (id_fila);
 
 ## 11. Vistas de consumo (RF-13)
 
+Power BI se conecta **solo** a `gold.v_*` y `gold.mv_*`. Todas aplican el mismo filtro de dinero: `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1`. Por eso los totales cuadran entre sí (verificación V4 de `sql/04_vistas.sql`: el valor total es idéntico en las 6 fuentes).
+
+**Por qué el filtro vive en la vista y no en el tablero:** un filtro de Power BI se desactiva con un clic. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado.
+
+### 11.1 Vistas de detalle (`sql/02_modelo_gold.sql`)
+
 | Vista | Para qué | Filtra |
 |---|---|---|
 | `gold.v_contratos` | Auditoría y QA. Todas las versiones con las banderas a la vista | Nada |
-| `gold.v_contratos_validos` | **Origen único de Power BI** | `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1` |
+| `gold.v_contratos_validos` | Detalle a nivel de versión | `NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1` |
 
-**Por qué el filtro vive en la vista:** un filtro de Power BI se desactiva con un clic. Si la vista ya viene filtrada, el tablero no puede mostrar un total contaminado.
+### 11.2 Vistas materializadas (`sql/04_vistas.sql`)
 
-Las vistas de agregación para el tablero (KPIs, evolución, geografía, proveedores, calidad) están en `sql/04_vistas.sql` y se refrescan con `CALL gold.refrescar_vistas()`. **Pendiente de actualizar** al modelo de 5 dimensiones.
+Son **8**, se pueblan leyendo `gold.fact_contrato` y no dependen entre sí. Se refrescan con `CALL gold.refrescar_vistas()` tras cada carga de oro.
+
+| Materializada | Grano | Responde |
+|---|---|---|
+| `mv_resumen_contratos` | año × nivel × tipo × modalidad × estado × origen × tipo de persona | RQ02, RQ07, RQ08, RQ10, RQ11, RQ13, RQ14 |
+| `mv_serie_mensual` | año × trimestre × mes × tipo × modalidad | RQ09 |
+| `mv_entidad_resumen` | entidad × año × modalidad | RQ01, RQ03, RQ12 |
+| `mv_geografia` | año × departamento × municipio | RQ05 |
+| `mv_proveedor_valor` | un proveedor | RQ04 |
+| `mv_duracion` | tipo × modalidad (percentiles) | RQ06 |
+| `mv_kpis_globales` | 1 fila | KPIs del panel principal |
+| `mv_calidad_datos` | 18 indicadores | Reporte de calidad (RF-19) |
+
+`mv_entidad_resumen` y `mv_calidad_datos` ven las filas **sin filtrar**, porque ahí es donde se cuentan los atípicos (RQ12) y las anomalías.
+
+### 11.3 Vistas normales sobre las materializadas (`sql/04_vistas.sql`)
+
+Son **14**. Las que agrupan por año llevan `es_anio_parcial`, que marca el último año presente en los datos (2026, corte 29/09/2026). La variación interanual de 2026 se calcula igual, pero compara un año incompleto.
+
+| Vista | Responde |
+|---|---|
+| `v_resumen_contratos` | Cubo base con `es_anio_parcial` |
+| `v_evolucion_anual` | RQ02: serie anual con variación interanual |
+| `v_estacionalidad` | RQ09: mes y trimestre |
+| `v_geografia_departamento` | RQ05: departamentos, con participación sobre el total del año |
+| `v_nivel_entidad` | RQ07: nacional frente a territorial |
+| `v_tipo_contrato` | RQ08: valor total y promedio por versión |
+| `v_participacion_origen` | RQ11: SECOP I frente a SECOP II |
+| `v_estado_contrato` | RQ13 y RQ14: estado y `valor_gastado` |
+| `v_perfil_tipo_persona` | RQ10: proporción por tipo de persona |
+| `v_no_competitiva_entidad` | RQ03: porcentaje no competitivo por entidad y año |
+| `v_no_competitiva_modalidad` | RQ03: desglose por modalidad (separa contratación directa de régimen especial) |
+| `v_atipicos_entidad` | RQ12: entidades con más versiones atípicas |
+| `v_top20_entidades` | RQ01: top 20 con porcentaje y acumulado |
+| `v_top20_proveedores` | RQ04: top 20 con entidades distintas, acumulado y HHI global |
+
+**Medido en la verificación de las vistas:** las 24 vistas (16 normales y 8 materializadas) son legibles por `secop_lectura`. 2018 suma 102,54 billones, y el top de proveedores lo abre el Consorcio Renting Blindados con 10,219 billones (0,887 % del total). El HHI global es 79,45 (escala 0-10.000).
+
+Los porcentajes de entidades con pocas versiones son ruidosos: para RQ03 hay que filtrar por `versiones_validas`.
 
 ---
 
 ## 12. Verificación
 
-El bloque 9 del DDL ejecuta 17 comprobaciones. Resultado de la carga de prueba (medido):
+El bloque 9 del DDL ejecuta 17 comprobaciones. Resultado de la carga vigente, posterior a la corrección de R5 (medido):
 
 | # | Comprobación | Esperado | Resultado |
 |---|---|---|---|
@@ -411,14 +455,14 @@ El bloque 9 del DDL ejecuta 17 comprobaciones. Resultado de la carga de prueba (
 | 9.7 | `(sk_fecha_firma, id_fila)` duplicados | 0 | ✔ |
 | 9.8 | Filas en `-1` | Coincide con los vacíos de plata | ✔ |
 | 9.9 | Dinero 2018, sin atípicos | ≈ 100 billones | ✔ **102,54**; `gastado` ≤ `limpio` |
-| 9.11 | Atípicos | 33.938 | ✔ |
+| 9.11 | Atípicos | 33.939 | ✔ |
 | 9.12 | `dim_tiempo` | 22.282 filas, sin huecos | ✔ |
-| 9.13 | `tipo_persona` por fila | 9.979.286 / 2.903.235 / 122.881 | ✔ (ver §7.3) |
+| 9.13 | `tipo_persona` por fila | 9.979.421 / 2.907.838 / 118.143 | ✔ (ver §7.3) |
 | 9.14 | Estados sin agrupar | 0 filas | ✔ |
 | 9.16 | `valor_gastado` > `valor_ajustado` | 0 | ✔ |
 | 9.17 | `secop_lectura` | ve `gold`, no ve `silver` | ✔ |
 
-> **Esta carga es de prueba.** Cuando se corrija la regla R5 de plata (conservar el estado de mayor rango, `decisiones_tecnicas.md` §18), habrá que **repetir la carga de oro**. El conteo no cambia, pero cambia el estado que conserva cada fila y, con ello, `valor_gastado` y la verificación 9.15.
+> **Esta carga ya incorpora la corrección de R5** (plata conserva el estado de mayor avance del ciclo de vida, `decisiones_tecnicas.md` §18). El conteo no cambió (13.005.402); cambió qué fila sobrevive entre los duplicados y, con ello, `tipo_persona`, `valor_gastado` por estado y los vacíos de fechas.
 
 La verificación 9.9 es la que importa: un modelo perfectamente normalizado que suma mal es peor que uno mal normalizado que al menos se ve raro.
 

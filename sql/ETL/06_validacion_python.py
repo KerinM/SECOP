@@ -11,7 +11,11 @@ sin usar las funciones de limpieza de la base:
   B. Toma una muestra al azar de plata, trae la fila ORIGINAL de bronce,
      la vuelve a limpiar en Python con las mismas reglas (R1-R8) y compara
      columna por columna con lo que quedó en plata.
-  C. Toma filas que la deduplicación (R5) eliminó y busca su "gemela" en plata.
+  C. Toma filas que la deduplicación (R5) eliminó y comprueba dos cosas:
+       C2. que su "gemela" (misma llave) sigue existiendo en plata;
+       C3. que la gemela conservada tiene un estado de ciclo de vida de
+           rango MAYOR O IGUAL al de la fila eliminada (R5 conserva el
+           estado de mayor avance, no el de menor id_fila).
   D. Revisa en Python el promedio de versiones de SECOP II (R7b).
   E. Lista los valores extremos marcados (R9b).
   F. Compara los totales por año con las cifras oficiales.
@@ -147,6 +151,32 @@ def limpiar_texto(t):
 def homologar(campo, valor):
     """R3"""
     return HOMOLOGACION.get((campo, valor), valor)
+
+
+def rango_estado(e):
+    """R5: posición del estado en el ciclo de vida (regla de negocio provisional).
+
+    Replica silver.rango_estado / gold.rango_estado, escrita de nuevo en Python.
+    Si la regla cambia en la base, hay que cambiarla también aquí.
+    0 = estado desconocido o nulo.
+    """
+    if e is None:
+        return 0
+    if e in ("BORRADOR", "EN APROBACION", "ENVIADO PROVEEDOR", "CONVOCADO", "ADJUDICADO"):
+        return 1
+    if e in ("APROBADO", "ACTIVO", "CELEBRADO"):
+        return 2
+    if e in ("EN EJECUCION", "MODIFICADO", "PRORROGADO"):
+        return 3
+    if e in ("SUSPENDIDO", "CEDIDO"):
+        return 4
+    if e in ("TERMINADO", "TERMINADO SIN LIQUIDAR", "LIQUIDADO"):
+        return 5
+    if e == "CERRADO":
+        return 6
+    if e == "CANCELADO" or e.startswith("TERMINADO ANORMALMENTE"):
+        return 7
+    return 0
 
 
 def a_fecha(t):
@@ -443,35 +473,55 @@ def prueba_c_duplicados(cur):
         FROM bronze.secop_raw b TABLESAMPLE BERNOULLI (0.05) REPEATABLE ({SEMILLA})
         WHERE NOT EXISTS (SELECT 1 FROM silver.contratos s WHERE s.id_fila = b.id_fila)
         LIMIT 1000
-    """, titulo="C2. Filas que la deduplicación quitó: ¿tienen su gemela en plata?")
-    llaves = []
+    """, titulo="C2/C3. Filas que la deduplicación quitó: ¿tienen gemela y de qué estado?")
+    llaves = []          # (id_fila, llave, estado_de_la_fila_eliminada)
     sin_id = 0
     for b in eliminadas:
         e = limpiar_fila(b)
         if e["id_contrato"] is None or e["id_proceso"] is None:
             sin_id += 1
             continue
-        llaves.append((b["id_fila"], (e["origen"], e["id_contrato"], e["id_proceso"],
-                                      e["documento_proveedor"], e["valor_contrato"], e["fecha_firma"])))
+        llaves.append((b["id_fila"],
+                       (e["origen"], e["id_contrato"], e["id_proceso"],
+                        e["documento_proveedor"], e["valor_contrato"], e["fecha_firma"]),
+                       e["estado_proceso"]))
     if not llaves:
         registrar("C2. Filas eliminadas sin gemela en plata", 0, "no hubo filas para revisar")
+        registrar("C3. Sobreviviente con estado de menor rango que el eliminado", 0,
+                  "no hubo filas para revisar")
         return
     candidatas = consultar(cur, """
-        SELECT id_fila, origen, id_contrato, id_proceso, documento_proveedor, valor_contrato, fecha_firma
+        SELECT id_fila, origen, id_contrato, id_proceso, documento_proveedor, valor_contrato,
+               fecha_firma, estado_proceso
         FROM silver.contratos
         WHERE id_contrato = ANY(%s) AND id_proceso = ANY(%s)
-    """, ([k[1] for _, k in llaves], [k[2] for _, k in llaves]))
+    """, ([k[1] for _, k, _ in llaves], [k[2] for _, k, _ in llaves]))
+    # En plata no hay llaves repetidas (C1 = 0): cada llave tiene un solo sobreviviente.
     gemelas = {}
     for s in candidatas:
         llave = (s["origen"], s["id_contrato"], s["id_proceso"], s["documento_proveedor"],
                  s["valor_contrato"], s["fecha_firma"])
-        gemelas[llave] = min(gemelas.get(llave, s["id_fila"]), s["id_fila"])
-    sin_gemela = [id_fila for id_fila, llave in llaves
-                  if llave not in gemelas or gemelas[llave] > id_fila]
+        gemelas[llave] = (s["id_fila"], s["estado_proceso"])
+
+    # C2: la gemela debe existir (ya no importa si su id_fila es mayor o menor)
+    sin_gemela = [id_fila for id_fila, llave, _ in llaves if llave not in gemelas]
     registrar("C2. Filas eliminadas sin gemela en plata", len(sin_gemela),
               f"de {len(llaves)} revisadas ({sin_id} omitidas por no tener número de contrato o proceso)")
     for id_fila in sin_gemela[:5]:
         ejemplos.append(f"- Fila eliminada sin gemela: id_fila {id_fila}")
+
+    # C3: el sobreviviente debe tener rango de estado >= el de la fila eliminada
+    con_gemela = [(id_fila, llave, estado) for id_fila, llave, estado in llaves if llave in gemelas]
+    peor = []
+    for id_fila, llave, estado_elim in con_gemela:
+        id_sobrev, estado_sobrev = gemelas[llave]
+        if rango_estado(estado_sobrev) < rango_estado(estado_elim):
+            peor.append((id_fila, estado_elim, id_sobrev, estado_sobrev))
+    registrar("C3. Sobreviviente con estado de menor rango que el eliminado", len(peor),
+              f"de {len(con_gemela)} pares revisados (R5 conserva el estado de mayor avance)")
+    for id_fila, estado_elim, id_sobrev, estado_sobrev in peor[:5]:
+        ejemplos.append(f"- Sobreviviente de menor rango: eliminada id_fila {id_fila} ({estado_elim}) "
+                        f"· conservada id_fila {id_sobrev} ({estado_sobrev})")
 
 
 def prueba_d_versiones(cur):

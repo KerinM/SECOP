@@ -17,7 +17,7 @@
 
 **Reparto:** José → RF-01 a RF-06 y RNF-01 a RNF-04 · Kerin → RF-07 a RF-13, RF-21, RF-22 y RNF-05 a RNF-07 · Isabella → RF-14 a RF-20 y RNF-08 a RNF-10.
 
-> **Cómo se organiza este documento.** Los **requerimientos de negocio (RQ)** dicen qué necesita saber un usuario del dato. Los **requerimientos funcionales (RF)** dicen qué debe hacer el sistema para entregarlo. Los **no funcionales (RNF)** dicen con qué calidad. **El modelo en estrella se deriva de los RQ** (sección 1.2).
+> **Cómo se organiza este documento.** Los **requerimientos de negocio (RQ)** dicen qué necesita saber un usuario del dato. Los **requerimientos funcionales (RF)** dicen qué debe hacer el sistema para entregarlo. Los **no funcionales (RNF)** dicen con qué calidad. **El modelo en estrella se deriva de los RQ** (sección 1.3).
 
 ---
 
@@ -52,15 +52,15 @@
 |---|---|---|
 | RQ01 | `dim_entidad` + `dim_tiempo` | RF-07 |
 | RQ02 | `dim_tiempo` (año) | RF-10 |
-| RQ03 | `dim_entidad` + `es_competitiva` de `dim_clasificacion_contrato` | RF-08 |
+| RQ03 | `dim_entidad` + `es_competitiva` de `dim_contrato` | RF-08 |
 | RQ04 | `dim_proveedor` y `COUNT(DISTINCT sk_entidad)` | RF-07 |
 | RQ05 | `dim_ubicacion` | RF-11 |
 | RQ06 | `duracion_dias` por `tipo_contrato` y `modalidad` | RF-09 |
 | RQ07 | `nivel_entidad` de `dim_entidad` | RF-07 |
-| RQ08 | `tipo_contrato` de `dim_clasificacion_contrato` | RF-07 |
+| RQ08 | `tipo_contrato` de `dim_contrato` | RF-07 |
 | RQ09 | mes y trimestre de `dim_tiempo` | RF-10 |
 | RQ10 | `tipo_persona` de `dim_proveedor` | RF-12 |
-| RQ11 | `origen` de `dim_clasificacion_contrato`, por año | RF-10 |
+| RQ11 | `origen` de `dim_contrato`, por año | RF-10 |
 | RQ12 | `es_atipico` por entidad | RF-07, RF-19 |
 | RQ13 | `agrupacion_estado` | RF-22 |
 | RQ14 | medida `valor_gastado` | RF-21 |
@@ -77,11 +77,11 @@
 | `dim_entidad` | `sk_entidad`, `codigo_entidad` (clave natural), nit, nombre, nivel | RQ01, RQ03, RQ07 |
 | `dim_ubicacion` | `sk_ubicacion`, departamento, municipio | RQ05 |
 | `dim_proveedor` | `sk_proveedor`, `documento_proveedor` (clave natural), nombre, **`tipo_persona`** | RQ04, RQ10 |
-| `dim_clasificacion_contrato` | `sk_clasificacion`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
+| `dim_contrato` | `sk_contrato`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
 
 **Hecho:** llaves foráneas a las 5 dimensiones (tiempo con 3 roles: firma, inicio y fin); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
 
-> **Pendiente de confirmar con el equipo:** el rango de `dim_tiempo` (2000-2060, clave entera AAAAMMDD con el registro -1 «SIN FECHA», igual que en las diapositivas) y el nombre `dim_clasificacion_contrato`.
+> **Decidido:** `dim_tiempo` va de 2000 a 2060, con clave entera AAAAMMDD y el registro -1 «SIN FECHA», como en las diapositivas. La dimensión de clasificación se llama `dim_contrato`.
 
 ---
 
@@ -127,7 +127,7 @@ El sistema debe:
 
 El sistema debe construir el modelo de la sección 1.3 a partir de `silver.contratos`:
 
-- **1 tabla de hechos** `fact_contrato` y **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_clasificacion_contrato`).
+- **1 tabla de hechos** `fact_contrato` y **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`).
 - Claves sustitutas enteras en las 5 dimensiones, claves naturales con `UNIQUE`, y llaves foráneas explícitas.
 - Registro **-1 «NO REGISTRA»** en cada dimensión; en `dim_tiempo`, «SIN FECHA».
 - `fact_contrato` particionada por rango sobre `sk_fecha_firma`, **13 particiones**. La clave primaria es compuesta (`sk_fecha_firma`, `id_fila`) porque PostgreSQL exige que incluya la clave de partición.
@@ -180,7 +180,7 @@ Regla de clasificación (**definición del proyecto, no medición**):
 | JURIDICA | NIT de persona jurídica, sociedades extranjeras, número de fideicomiso, y `NIT` genérico con documento de 9 dígitos que empieza por 8 o 9 (heurística que cubre el 94,5 % de los `NIT` genéricos) |
 | NO CLASIFICADO | NIT de extranjería, otro, nulos y `NIT` genérico que no cumple la heurística |
 
-**Criterio de aceptación:** `NATURAL` 10.372.323 + `JURIDICA` 1.909.481 + `NO CLASIFICADO` 723.598 = 13.005.402 filas; la suma de proporciones del valor es 100 %.
+**Criterio de aceptación:** `NATURAL` 9.979.421 + `JURIDICA` 2.907.838 + `NO CLASIFICADO` 118.143 = 13.005.402 filas (medido en oro); la suma de proporciones del valor es 100 %. La clasificación es **por documento**: si un mismo documento aparece con tipos distintos, JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO (83.363 documentos, 2.551.616 filas).
 
 ### RF-13 — Vistas de consumo reutilizables
 
@@ -227,7 +227,7 @@ El sistema debe comparar el conteo cargado contra la fuente y reportar discrepan
 
 ### RF-15 — Panel de KPIs globales
 
-Power BI debe mostrar total de versiones de contrato (13.005.402), total de contratos distintos (554.063 de ellos con versiones), valor contratado, valor gastado, número de entidades, de proveedores y de departamentos.
+Power BI debe mostrar total de versiones de contrato (13.005.402), total de contratos distintos (12.147.523, de los cuales 554.063 tienen versiones), valor contratado, valor gastado, número de entidades, de proveedores y de departamentos.
 
 > Los recuentos de entidades, proveedores y municipios son `count(distinct …)` sobre texto libre y **se miden después de construir oro**; no se estiman.
 
@@ -255,7 +255,7 @@ Power BI debe presentar el top 20 de proveedores por valor, su participación ac
 
 El sistema debe reportar, con cantidad y porcentaje, las anomalías de la fuente: fechas imposibles (R4), duplicados eliminados (R5), valores en cero y de relleno (R6), valores repetidos y versiones (R7, R7b) y valores atípicos y extremos (R9, R9b).
 
-**Criterio de aceptación:** el reporte cubre todas las reglas y las cifras coinciden con `05_qa_silver.sql` y la validación independiente en Python (42/42).
+**Criterio de aceptación:** el reporte cubre todas las reglas y las cifras coinciden con `05_qa_silver.sql` y la validación independiente en Python (43/43).
 
 ### RF-20 — Filtros interactivos y capturas
 
@@ -303,7 +303,7 @@ La base se crea en UTF-8 con intercalación `es-CO-x-icu`. El texto dañado en e
 
 ### RNF-08 — Verificación automatizada
 Debe existir un procedimiento ejecutable tras cada carga que compruebe conteos por capa, vacíos por columna, duplicados, rango de fechas, huérfanos por FK y tamaño por tabla.
-**Verificación:** `05_qa_silver.sql` (42 pruebas) y `06_validacion_python.py` sin pruebas en REVISAR.
+**Verificación:** `05_qa_silver.sql` (18 validaciones automáticas) y `06_validacion_python.py` (43 pruebas) sin pruebas en REVISAR.
 
 ### RNF-09 — Documentación reproducible
 El README y `docs/` deben permitir a un tercero montar el entorno completo siguiendo los pasos, e interpretar el tablero y las capturas.

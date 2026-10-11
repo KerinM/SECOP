@@ -68,9 +68,9 @@ El modelo anterior tenía cuatro dimensiones pequeñas (`dim_tipo_contrato`, `di
 |---|---|---|
 | FK en el hecho | 4 | **1** |
 | `JOIN` por consulta | hasta 4 | **1** |
-| Filas | decenas cada una | **1.005 combinaciones** (medido) + el `-1` |
+| Filas | decenas cada una | **1.014 combinaciones** (medido) + el `-1` |
 
-**Por qué cabe en una:** los cuatro atributos describen cómo es el contrato y se consultan juntos (RQ03, RQ06, RQ08, RQ11, RQ13). Con solo 1.005 combinaciones reales, la dimensión es mínima.
+**Por qué cabe en una:** los cuatro atributos describen cómo es el contrato y se consultan juntos (RQ03, RQ06, RQ08, RQ11, RQ13). Con solo 1.014 combinaciones reales, la dimensión es mínima.
 
 **Costo asumido:** si aparece un valor nuevo en cualquiera de los cuatro atributos, nace una combinación nueva. Es aceptable: el `INSERT ... ON CONFLICT` de la carga las agrega solas.
 
@@ -150,7 +150,7 @@ Las 5 dimensiones llevan un registro `sk = -1` con `NO REGISTRA` (`SIN FECHA` en
 
 **Por qué `-1` y no `0`:** el `0` se confunde con un valor real. **Por qué no `NULL`:** el `NULL` real se conserva en plata, que es la capa de auditoría.
 
-**Medido (verificación 9.8):** el `-1` mide el vacío del origen, no un error del modelo. Ejemplos: 48.932 filas sin ubicación, 895.006 sin fecha de inicio y 3 sin fecha de firma, que coinciden con los vacíos de plata.
+**Medido (verificación 9.8):** el `-1` mide el vacío del origen, no un error del modelo. Ejemplos: 54.026 filas sin ubicación, 772.332 sin fecha de inicio y 3 sin fecha de firma, que coinciden con los vacíos de plata.
 
 El `-1` **no se excluye** de los agregados generales, para que el total del tablero cuadre con las filas de plata; solo se excluye cuando la pregunta es sobre entidades o proveedores.
 
@@ -195,23 +195,23 @@ Las cuatro reglas siguientes **no son mediciones**: son definiciones del proyect
 
 | | Valor |
 |---|---:|
-| Documentos con tipos contradictorios | **83.765** |
-| Filas de esos documentos | **2.554.879** (19,6 % de 13.005.402) |
+| Documentos con tipos contradictorios | **83.363** |
+| Filas de esos documentos | **2.551.616** (19,6 % de 13.005.402) |
 
 Efecto sobre el reparto **por fila** de `fact_contrato`:
 
 | tipo_persona | Clasificando cada fila por separado | **Clasificando por documento (modelo)** |
 |---|---:|---:|
-| NATURAL | 10.372.323 | **9.979.286** |
-| JURIDICA | 1.909.481 | **2.903.235** |
-| NO CLASIFICADO | 723.598 | **122.881** |
+| NATURAL | 10.372.706 | **9.979.421** |
+| JURIDICA | 1.956.752 | **2.907.838** |
+| NO CLASIFICADO | 675.944 | **118.143** |
 | Total | 13.005.402 | 13.005.402 |
 
-La primera columna se midió clasificando cada fila con su propio tipo de documento; la segunda es lo que queda en oro tras asignar un tipo único a cada documento. La diferencia entre ambas es el efecto de los 83.765 documentos contradictorios.
+La primera columna se midió clasificando cada fila con su propio tipo de documento; la segunda es lo que queda en oro tras asignar un tipo único a cada documento. La diferencia entre ambas es el efecto de los 83.363 documentos contradictorios.
 
 **Se acepta esta regla** porque un proveedor es una persona o una sociedad, no una persona distinta en cada versión del contrato, y porque resuelve la mayor parte de los tipos nulos (697.080 filas) con la información de otras filas del mismo documento. **Riesgo que hay que conocer:** como JURIDICA gana, un único `NIT` mal registrado en una fila puede convertir a un proveedor natural en jurídico, lo que infla JURIDICA. No hay medición de cuántos casos son así. Para RQ10 el efecto es aceptable, pero cualquier presentación debe decir que la proporción es **por documento y con prioridad JURIDICA**.
 
-> **Pendiente (no medido):** la *causa* de cada contradicción (por ejemplo, `NIT` frente a `NIT DE PERSONA NATURAL`, o tipo nulo frente a tipo informado) no se ha desglosado; se puede medir agrupando los tipos de los 83.765 documentos.
+> **Pendiente (no medido):** la *causa* de cada contradicción (por ejemplo, `NIT` frente a `NIT DE PERSONA NATURAL`, o tipo nulo frente a tipo informado) no se ha desglosado. Las cifras de esta sección se midieron después de corregir R5 y no se han vuelto a medir desde entonces.
 
 ### 8.2 `es_competitiva` (RQ03) — definida por decisión del grupo
 
@@ -223,7 +223,7 @@ La primera columna se midió clasificando cada fila con su propio tipo de docume
 
 **El régimen especial cuenta como no competitivo.** Es una decisión del grupo: el régimen especial no exige un proceso competitivo abierto, aunque jurídicamente no sea «contratación directa».
 
-**Consecuencia medida:** CONTRATACION DIRECTA (8.177.358) + REGIMEN ESPECIAL (3.487.229) + OTRAS FORMAS (2) = 11.664.589 filas, o **≈ 89,7 %** de 13.005.402. Con un porcentaje tan alto, un único indicador agregado esconde la diferencia entre ambas modalidades; **en Power BI el indicador debe mostrarse desglosado por modalidad** (RF-08).
+**Consecuencia medida:** CONTRATACION DIRECTA (8.177.785) + REGIMEN ESPECIAL (3.487.257) + OTRAS FORMAS (2) = 11.665.044 filas, o **≈ 89,7 %** de 13.005.402. Con un porcentaje tan alto, un único indicador agregado esconde la diferencia entre ambas modalidades; **en Power BI el indicador debe mostrarse desglosado por modalidad** (RF-08).
 
 ### 8.3 Ciclo de vida del contrato: `agrupacion_estado` y `rango_estado` (RQ13) — definida, provisional
 
@@ -249,6 +249,10 @@ La primera columna se midió clasificando cada fila con su propio tipo de docume
 **Qué es juicio y no medición:** el orden de `SUSPENDIDO` y `CEDIDO` (rango 4). Está marcado como provisional.
 
 **El patrón `TERMINADO ANORMALMENTE%`** cubre el nombre truncado del estado de SECOP I (`TERMINADO ANORMALMENTE DESPUES DE CONVOCA…`). La verificación 9.14 comprueba que ningún estado quede sin agrupar.
+
+**Este ranking también decide la deduplicación (R5).** `silver.rango_estado` aplica la misma escala en plata: de cada grupo de filas idénticas se conserva la de mayor rango y, a igualdad, la de menor `id_fila`. Efecto medido en SECOP II: CERRADO pasó de 1.174.268 a 1.674.727 y TERMINADO de 644.692 a 776.995; EN EJECUCION bajó de 1.902.281 a 1.570.664 y MODIFICADO de 1.548.187 a 1.366.712. El ranking vive en dos funciones (`silver.rango_estado` y `gold.rango_estado`): si cambia la regla, hay que cambiar ambas.
+
+Las cifras de estados de esta sección (84 cancelaciones, 4.262 precontractuales) se midieron **antes** de corregir R5 y no se han vuelto a medir.
 
 ### 8.4 `valor_gastado` (RQ14) — definida, **pendiente de confirmar con el profesor**
 
@@ -291,7 +295,7 @@ Las cuatro dimensiones categóricas tienen `UNIQUE` en su clave natural (`codigo
 
 `dim_entidad` y `dim_proveedor` se cargan con `GROUP BY` y no con `SELECT DISTINCT`, porque una misma clave puede traer atributos distintos (el mismo código de entidad con dos nombres, el mismo documento con dos razones sociales). `max()` elige uno: es una decisión consciente, no un dato perdido, porque los atributos originales siguen en `silver.contratos` y se recuperan por `id_fila`.
 
-**Medido en la carga:** 15.821 entidades y 2.181.586 proveedores nuevos (más el `-1` en cada una). El conteo real de `dim_proveedor` es **2.181.587**; los 2.188.690 que mostraba `pg_stat_user_tables` eran una estimación de `n_live_tup`, que no es exacta tras un `UPDATE` masivo.
+**Medido en la carga:** 15.821 entidades y 2.178.559 proveedores nuevos (más el `-1` en cada una). El conteo real de `dim_proveedor` es **2.178.560**. `pg_stat_user_tables.n_live_tup` es una estimación y no es exacta tras un `UPDATE` masivo: para cifras oficiales se usa `count(*)`.
 
 ---
 
@@ -379,7 +383,7 @@ Como `id_fila` es correlativo por archivo (2017 = filas 1 a 1.498.976), también
 
 | Descartado | Motivo |
 |---|---|
-| Sobre `es_atipico` | 33.938 en `true` sobre 13 millones; un índice sobre el 99,7 % de falsos no lo usa nadie |
+| Sobre `es_atipico` | 33.939 en `true` sobre 13 millones; un índice sobre el 99,7 % de falsos no lo usa nadie |
 | Sobre `valor_ajustado` suelto | Redundante con `ix_fact_anio_valor`. En el modelo anterior ocupaba 639 MB sin que ninguna consulta lo usara |
 | Sobre cada clave natural de dimensión | El `UNIQUE` ya es un índice |
 
@@ -395,11 +399,31 @@ El modelo anterior guardaba `contratos` y `valor_total` en cada dimensión, a pr
 
 - Eran derivables de los hechos y podían quedar **desactualizadas** sin que nadie lo notara, si se modificaba un hecho fuera de la carga.
 - Obligaban a seis `UPDATE` masivos en cada carga.
-- La necesidad de rendimiento se cubre mejor con **vistas materializadas** (`sql/04_vistas.sql`), que se refrescan con `CALL gold.refrescar_vistas()` y se pueden reconstruir sin tocar las dimensiones.
+- La necesidad de rendimiento se cubre mejor con **vistas materializadas**, que se reconstruyen sin tocar las dimensiones.
 
 Con esto las dimensiones solo contienen **atributos descriptivos**; todo número agregado vive en la capa de consumo.
 
-**Lo que sí se desnormaliza, y es deliberado:** dentro de `dim_contrato`, `es_competitiva`, `agrupacion_estado` y `rango_estado` se derivan de `modalidad` y `estado_proceso`. Es la práctica habitual de una dimensión en un esquema en estrella (se guardan los atributos ya calculados para agrupar sin funciones). Se recalculan con un `UPDATE` al final de la carga de dimensiones, así que no se desincronizan.
+### 13.1 La capa de consumo: 8 materializadas y 14 vistas
+
+`sql/04_vistas.sql` crea **8 vistas materializadas** (`mv_resumen_contratos`, `mv_serie_mensual`, `mv_entidad_resumen`, `mv_geografia`, `mv_proveedor_valor`, `mv_duracion`, `mv_kpis_globales`, `mv_calidad_datos`) y **14 vistas normales** que leen de ellas. El catálogo completo, con el RQ que responde cada una, está en `modelo_relacional.md` §11.
+
+Decisiones de diseño de esta capa:
+
+- **Las vistas leen de `gold.fact_contrato` con `JOIN` a las dimensiones**, no de `v_contratos_validos`. Así cada materializada agrupa directamente sobre el hecho, sin pasar por una vista de 13 millones de filas.
+- **Un único filtro de dinero** (`NOT es_atipico AND NOT es_fecha_invalida AND sk_fecha_firma <> -1`) en todas las medidas. Es lo que hace que el valor total sea idéntico en las 6 fuentes (verificación V4).
+- **Los atípicos se cuentan donde corresponde:** `mv_entidad_resumen` (RQ12) y `mv_calidad_datos` ven las filas sin filtrar.
+- **`es_anio_parcial` no esconde el año incompleto:** marca el último año presente en los datos (2026) y deja la variación interanual calculada.
+- **Las vistas por entidad o proveedor excluyen el miembro `-1`**; las agregaciones generales (año, geografía) lo conservan para que el total cuadre con las filas de plata.
+- **Los percentiles de duración** (`mv_duracion`) no se pueden sacar de un cubo ya agregado, por eso se calculan sobre las filas.
+- **Refresco:** `CALL gold.refrescar_vistas()`. Las 8 materializadas no dependen entre sí, así que el orden no importa. Las vistas normales no se refrescan.
+
+**Lección: `ORDER BY ... DESC` pone los `NULL` primero en PostgreSQL.** El primer ranking de proveedores salió con proveedores de valor `NULL` (8 en `mv_proveedor_valor`, medido) ocupando las 20 posiciones, con `billones`, `pct_del_total` y `pct_acumulado` vacíos. Se corrigió con `ORDER BY valor_ajustado DESC NULLS LAST`. Cualquier `top N` sobre una medida que pueda ser `NULL` debe llevar `NULLS LAST`.
+
+### 13.2 Lo que sí se desnormaliza, y es deliberado
+
+Dentro de `dim_contrato`, `es_competitiva`, `agrupacion_estado` y `rango_estado` se derivan de `modalidad` y `estado_proceso`. Es la práctica habitual de una dimensión en un esquema en estrella (se guardan los atributos ya calculados para agrupar sin funciones). Se recalculan con un `UPDATE` al final de la carga de dimensiones, así que no se desincronizan.
+
+---
 
 ---
 
@@ -452,12 +476,12 @@ Las tres capas coexisten para poder auditar. Decisión: **no se implementa ahora
 
 | # | Tema | Estado |
 |---|---|---|
-| 1 | **Corregir R5** para que conserve el estado de mayor rango y no el menor `id_fila`. Plata ya borró los duplicados, que solo existen en bronce; hay que decidir entre reconstruir plata (más limpio, 1,5-2 h) o un script puntual `02d` (más pesado de diseñar). **Hay que hablar con José antes: plata es suya.** Cuando se corrija, hay que **repetir la carga de oro**: el conteo no cambia (13.005.402) pero cambia qué fila se conserva y, con ello, `estado_proceso`, `valor_gastado` y la verificación 9.15 | Pendiente |
+| 1 | **Corregir R5** para que conserve el estado de mayor rango y no el menor `id_fila` | **Resuelto.** Se reconstruyó plata (opción a) con `silver.rango_estado` en el `ORDER BY` de R5, porque en 173.178 de los 1.169.445 grupos las filas duplicadas también difieren en `fecha_fin` (14,8 %), y un `UPDATE` solo del estado habría mezclado atributos de filas distintas. Plata sigue en 13.005.402, oro se reconstruyó y la validación en Python da 43/43 |
 | 2 | Confirmar con el profesor que «gastado» = valor contratado vigente (no pagado) | Pendiente |
 | 3 | Informar al profesor que «ANULADO» no existe (84 filas de cancelaciones) | Pendiente |
 | 4 | Orden de `SUSPENDIDO` y `CEDIDO` en el ranking | Juicio del equipo |
 | 5 | `valor_gastado` = 0 o NULL en las filas que no cuentan | Asumido 0 |
-| 6 | Desglosar la causa de los 83.765 documentos con tipos contradictorios | No medido |
+| 6 | Desglosar la causa de los 83.363 documentos con tipos contradictorios | No medido |
 | 7 | 16 frente a 22 columnas de origen: varios documentos dicen 16, pero `bronze.secop_raw` tiene 22 columnas de datos | Verificar contra los CSV |
 
 ---
