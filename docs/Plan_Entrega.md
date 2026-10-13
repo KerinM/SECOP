@@ -1,7 +1,8 @@
 # Plan de Entrega — SECOP Integrado
 
 **Proyecto:** Base de datos relacional de contratación pública de Colombia (SECOP I + SECOP II) sobre datos abiertos oficiales.
-**Volumetría:** **16.025.993 registros** en `bronze` → **13.005.402** en `silver` tras deduplicar · 16 columnas · base `secop_dw`.
+**Volumetría:** **16.025.993 registros** en `bronze` → **13.005.402** en `silver` tras deduplicar · 22 columnas de origen · base `secop_dw`.
+**Modelo:** estrella de **5 dimensiones** y una tabla de hechos, derivada de **14 requerimientos de negocio** (RQ01-RQ14).
 **Motor:** PostgreSQL 18.6 + DBeaver 26.2.0 + Python 3.14 + Power BI Desktop.
 **Equipo (3):** Kerin · José · Isabella
 **Régimen de trabajo:** lunes y miércoles, en 6 sesiones, hasta la entrega del **miércoles 14 de octubre de 2026**.
@@ -14,9 +15,9 @@
 |---|---|---|---|---|
 | **1** | **Volumetría** | Analista de Datos | **Kerin** | [`docs/volumetria.md`](volumetria.md) ✅ |
 | **2** | **Modelo lógico y conceptual de la bodega de datos** | Analista de Datos | **Kerin** | ✅ [`docs/modelo_relacional.md`](modelo_relacional.md) · [`sql/02_modelo_gold.sql`](../sql/02_modelo_gold.sql) |
-| **3** | **Aplicación y explicación de la metodología Medallion** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` (sección Medallion) |
-| **4** | **Explicación de los ETL** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` |
-| **5** | **Fotos de las visualizaciones** | QA / Visualización | **Isabella** | [`docs/imagenes/`](/docs/imagenes/)✅ + `docs/visualizaciones.md` |
+| **3** | **Aplicación y explicación de la metodología Medallion** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` (sección Medallion) · mientras tanto, [`sql/ETL/README_ETL.md`](../sql/ETL/README_ETL.md) |
+| **4** | **Explicación de los ETL** | ETL / Administrador de PostgreSQL | **José** | `docs/etl_carga.md` · mientras tanto, [`sql/ETL/README_ETL.md`](../sql/ETL/README_ETL.md) |
+| **5** | **Fotos de las visualizaciones** | QA / Visualización | **Isabella** | [`docs/imagenes/`](imagenes/) + `docs/visualizaciones.md` (pendiente) |
 
 ---
 
@@ -24,7 +25,7 @@
 
 | Miembro | **Rol** | Responsabilidad principal | Entregables | Requisitos asignados |
 |---|---|---|---|---|
-| **Kerin** | **Analista de Datos** | Medición y caracterización del dataset, modelo de la bodega, consultas analíticas de negocio | **1** y **2** | RF-07 a RF-13, RNF-05 a RNF-07 |
+| **Kerin** | **Analista de Datos** | Medición y caracterización del dataset, modelo de la bodega, consultas analíticas de negocio | **1** y **2** | RF-07 a RF-13, RF-21, RF-22, RNF-05 a RNF-07 |
 | **José** | **ETL / Administrador de PostgreSQL** | Descarga, carga, modelado físico, índices, particionado, tuning del servidor | **3** y **4** | RF-01 a RF-06, RNF-01 a RNF-04 |
 | **Isabella** | **QA / Visualización** | Calidad de datos, validación de integridad, tableros en Power BI y evidencias gráficas | **5** | RF-14 a RF-20, RNF-08 a RNF-10 |
 
@@ -32,11 +33,13 @@
 
 Kerin **tiene asignada la volumetría como primera tarea técnica** (es el Entregable 1 y el primer punto solicitado del proyecto), pero **su rol no es "analista de volumetría"**: es **Analista de Datos**. La volumetría es la medición de entrada; a partir de ella Kerin construye el modelo de la bodega y las consultas analíticas, que es lo que define su rol.
 
-### 2.2 Reparto de requerimientos (30 en total)
+### 2.2 Reparto de requisitos (32 en total)
+
+Los 32 requisitos son **22 requisitos funcionales (RF-01 a RF-22) y 10 no funcionales (RNF-01 a RNF-10)**. Además hay **14 requerimientos de negocio (RQ01-RQ14)**, de los que se deriva el modelo; no se reparten por persona porque son la razón de ser de los RF.
 
 | Persona | Requisitos | Cantidad |
 |---|---|---|
-| **Kerin** | RF-07 … RF-13 · RNF-05 … RNF-07 | 7 + 3 = **10** |
+| **Kerin** | RF-07 … RF-13 · RF-21 · RF-22 · RNF-05 … RNF-07 | 7 + 2 + 3 = **12** |
 | **José** | RF-01 … RF-06 · RNF-01 … RNF-04 | 6 + 4 = **10** |
 | **Isabella** | RF-14 … RF-20 · RNF-08 … RNF-10 | 7 + 3 = **10** |
 
@@ -63,7 +66,7 @@ Detalle completo en [`requerimientos.md`](requerimientos.md).
 | Quién | Actividades | Producto |
 |---|---|---|
 | **Kerin** | Cerrar el entregable 1: proyección a PostgreSQL, plan de índices y particionado, riesgos de capacidad, anomalías volumétricas | **`volumetria.md` final** |
-| **José** | Implementar la descarga paginada en paralelo y el script `cargar_postgres.py` con `COPY FROM STDIN` por lotes de 250.000 | Script funcionando + primeras filas cargadas |
+| **José** | Descarga por años (10 CSV, uno por año de firma) y carga a `bronze.secop_raw` con `\copy`, un archivo a la vez | Script de carga funcionando + bronce cargado |
 | **Isabella** | Perfilado de columnas en DBeaver: tipos, nulos reales, valores más frecuentes. Contrastar contra la volumetría de Kerin | Reporte de perfilado |
 
 **Horas:** Kerin 3 h · José 5 h · Isabella 3 h
@@ -82,8 +85,8 @@ Detalle completo en [`requerimientos.md`](requerimientos.md).
 
 | Quién | Actividades | Producto |
 |---|---|---|
-| **Kerin** | **E2** · Modelo **lógico**: normalización 1FN/2FN/3FN, esquema en estrella con PK/FK, DDL de las 7 dimensiones + fact | Diagrama lógico + DDL |
-| **José** | **E4** · ETL parte 1: mapeo de tipos, descarga → `COPY`, normalización de fechas, función `es_fecha_valida()` | `etl_carga.md` v1 |
+| **Kerin** | **E2** · Modelo **lógico**: normalización 1FN/2FN/3FN, esquema en estrella con PK/FK, DDL de las 5 dimensiones + fact | Diagrama lógico + DDL |
+| **José** | **E4** · ETL parte 1: mapeo de tipos, saneamiento de fechas (R4) y reglas de limpieza R1-R9 en plata | `etl_carga.md` v1 |
 | **Isabella** | **E5** · Power BI parte 1: conexión al modelo, página de KPIs globales y evolución anual | Páginas 1–2 del tablero |
 
 **Horas:** Kerin 4 h · José 5 h · Isabella 4 h
@@ -102,7 +105,7 @@ Detalle completo en [`requerimientos.md`](requerimientos.md).
 
 | Quién | Actividades | Producto |
 |---|---|---|
-| **Kerin** | Checklist final de los 5 entregables, revisión cruzada, homogenousar nombres fact/dim entre modelo, vistas y tablero | Checklist OK |
+| **Kerin** | Checklist final de los 5 entregables, revisión cruzada, homogeneizar nombres fact/dim entre modelo, vistas y tablero | Checklist OK |
 | **José** | Verificación de reproducibilidad: el README permite a un tercero montar todo desde cero | Checklist OK |
 | **Isabella** | **E5** · Capturas PNG de todas las páginas del tablero en alta resolución, nombradas y ordenadas en `docs/imagenes/` | **Fotos de las visualizaciones** |
 
@@ -134,17 +137,17 @@ Detalle completo en [`requerimientos.md`](requerimientos.md).
 
 | Prio | Ítem | Dueño | Talla | Definición de "hecho" |
 |---|---|---|---|---|
-| **P0** | Volumetría completa | Kerin | L | Las 12 secciones escritas, con 4 proyecciones a PostgreSQL y las consultas SQL de verificación |
+| **P0** | Volumetría completa | Kerin | L | Las secciones escritas, con proyecciones a PostgreSQL y las consultas SQL de verificación |
 | **P0** | Descarga por años + carga | José | L | 16.025.993 filas en `bronze`, `count(*)` = 16.025.993 |
-| **P0** | Modelo conceptual y lógico | Kerin | L | 2 diagramas PlantUML + DDL con PK/FK de 7 dimensiones + fact |
+| **P0** | Modelo conceptual y lógico | Kerin | L | 2 diagramas PlantUML + DDL con PK/FK de 5 dimensiones + fact |
 | **P0** | Metodología Medallion | José | M | Bronze/Silver/Gold explicados y aplicados a SECOP, con diagrama |
-| **P0** | Explicación de los ETL | José | L | Mapeo de tipos, `COPY` por lotes, normalización de fechas, índices y particionado documentados |
+| **P0** | Explicación de los ETL | José | L | Carga por `\copy`, mapeo de tipos, reglas de limpieza R1-R9b, normalización de fechas, índices y particionado documentados |
 | **P0** | Fotos de las visualizaciones | Isabella | M | ≥ 5 capturas PNG de alta resolución en `docs/imagenes/` |
 | **P0** | Revisión cruzada + entrega | Equipo | S | Los 3 aprueban y el repo queda actualizado |
 | **P1** | Consultas analíticas | Kerin | M | ≥ 15 consultas de negocio, cada una < 5 s |
 | **P1** | Tablero Power BI | Isabella | L | 5 páginas: KPIs, evolución, mapa, top contratistas, filtros |
-| **P1** | Calidad de datos | Isabella | M | `calidad_datos.md` con las 4 clases de anomalías medidas |
-| **P2** | Particionado por año | José | M | 30 particiones funcionando, consultas anuales < 1 s |
+| **P1** | Calidad de datos | Isabella | M | `calidad_datos.md` con las clases de anomalías medidas |
+| **P2** | Particionado por año | José | M | 13 particiones funcionando, consultas anuales < 1 s |
 | **P2** | Diccionario de datos | Kerin | S | 22 columnas con tipo, descripción, nulos y ejemplo |
 
 ---
@@ -221,7 +224,7 @@ Project ends 2026-10-15
 [J1] starts 2026-09-28
 [J1] #AADDF7
 
-[Descarga paginada + COPY por lotes] as [J2] lasts 2 days
+[Descarga por años + carga con copy] as [J2] lasts 2 days
 [J2] starts 2026-09-29
 [J2] ends 2026-09-30
 [J2] #AADDF7
@@ -230,7 +233,7 @@ Project ends 2026-10-15
 [J3] starts 2026-10-05
 [J3] #AADDF7
 
-[E4 ETL: tipos + fechas + COPY] as [J4] lasts 1 day
+[E4 ETL: tipos + fechas + limpieza] as [J4] lasts 1 day
 [J4] starts 2026-10-07
 [J4] #AADDF7
 
@@ -270,7 +273,7 @@ Project ends 2026-10-15
 ' ===== HITOS =====
 [Sprint Backlog definido] happens 2026-09-28
 [E1 Volumetría entregada] happens 2026-09-30
-[22,67M filas cargadas en PostgreSQL] happens 2026-10-05
+[16,03M filas cargadas en bronce] happens 2026-10-05
 [E2 Modelo completo] happens 2026-10-07
 [E3 Medallion + E4 ETL cerrados] happens 2026-10-12
 [ENTREGA FINAL] happens 2026-10-14
@@ -283,7 +286,7 @@ Project ends 2026-10-15
 
 ## 6. Metodología Medallion aplicada a SECOP (resumen del Entregable 3)
 
-> El desarrollo completo lo hace **José** en `etl_carga.md`. Aquí queda la definición acordada por el equipo.
+> El desarrollo completo lo hace **José** en `etl_carga.md`; mientras tanto, el detalle del ETL de bronce y plata está en [`sql/ETL/README_ETL.md`](../sql/ETL/README_ETL.md). Aquí queda la definición acordada por el equipo.
 
 ```plantuml
 @startuml
@@ -292,54 +295,43 @@ title Arquitectura Medallion - SECOP Integrado
 left to right direction
 
 package "BRONZE - Ingesta cruda" {
-  [API Socrata rpmr-utcd\ncontratos 2017-2026]
-  [Descarga paginada por año\n10 CSV, uno por año]
-  [bronze.secop_raw\n16 columnas text\n16.025.993 filas]
+  [API Socrata rpmr-utcd\ncontratos firmados 2017-2026] as API
+  [10 CSV, uno por ano\ncarga con COPY] as CSV
+  [bronze.secop_raw\n22 columnas text\n16.025.993 filas] as BRZ
 }
 
 package "SILVER - Limpieza y normalizacion" {
-  [silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas]
-  [R1-R3: texto, nulos falsos\ny homologacion de nombres]
-  [R4: fechas imposibles\na NULL + bandera]
-  [R5: duplicados exactos\nBORRADOS (unica regla destructiva)]
-  [R7b: valor_ajustado\nreparte versiones]
-  [R9-R9b: atipicos\nmarcados, no borrados]
+  [silver.contratos\ntipos nativos + reglas R1-R9b\n13.005.402 filas] as SLV
+  [R1-R3: texto, nulos falsos\ny homologacion de nombres\nR4: fechas imposibles a NULL + bandera\nR5: duplicados BORRADOS\n(conserva el estado de mayor avance)\nR7-R7b: valor_ajustado reparte versiones\nR9-R9b: atipicos marcados, no borrados] as REG
 }
 
 package "GOLD - Modelo analitico" {
-  [fact_contrato particionado\npor ano (13 particiones)]
-  [dim_entidad · dim_proveedor]
-  [dim_tipo_contrato · dim_modalidad]
-  [dim_estado · dim_origen]
-  [dim_tiempo 1900-2030\nclave natural, sin -1]
-  [v_contratos · v_contratos_validos\npara Power BI]
+  [dim_tiempo 2000-2060\nclave entera, registro -1] as DT
+  [dim_entidad · dim_ubicacion\ndim_proveedor · dim_contrato\nregistro -1 en cada una] as DIM
+  [fact_contrato\n13 particiones por sk_fecha_firma\n13.005.402 filas] as FACT
+  [gold.v_* y gold.mv_*\npara Power BI] as VIS
 }
 
-[API Socrata rpmr-utcd\ncontratos 2017-2026] --> [Descarga paginada por ano\n10 CSV, uno por ano]
-[Descarga paginada por ano\n10 CSV, uno por ano] --> [bronze.secop_raw\n16 columnas text\n16.025.993 filas]
-[bronze.secop_raw\n16 columnas text\n16.025.993 filas] --> [silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas]
-[silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas] --> [R1-R3: texto, nulos falsos\ny homologacion de nombres]
-[silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas] --> [R4: fechas imposibles\na NULL + bandera]
-[silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas] --> [R5: duplicados exactos\nBORRADOS (unica regla destructiva)]
-[silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas] --> [R7b: valor_ajustado\nreparte versiones]
-[silver.contratos\ntipos nativos + R1-R9\n13.005.402 filas] --> [R9-R9b: atipicos\nmarcados, no borrados]
-[R4: fechas imposibles\na NULL + bandera] --> [fact_contrato particionado\npor ano (13 particiones)]
-[R7b: valor_ajustado\nreparte versiones] --> [dim_entidad · dim_proveedor]
-[R5: duplicados exactos\nBORRADOS (unica regla destructiva)] --> [dim_tipo_contrato · dim_modalidad]
-[R1-R3: texto, nulos falsos\ny homologacion de nombres] --> [dim_estado · dim_origen]
-[R5: duplicados exactos\nBORRADOS (unica regla destructiva)] --> [dim_tiempo 1900-2030\nclave natural, sin -1]
-[R9-R9b: atipicos\nmarcados, no borrados] --> [v_contratos · v_contratos_validos\npara Power BI]
-[dim_tipo_contrato · dim_modalidad] --> [v_contratos · v_contratos_validos\npara Power BI]
-[dim_estado · dim_origen] --> [v_contratos · v_contratos_validos\npara Power BI]
-@enduml```
+API --> CSV
+CSV --> BRZ
+BRZ --> SLV
+REG ..> SLV
+SLV --> FACT
+SLV --> DIM
+SLV --> DT
+DT --> FACT
+DIM --> FACT
+FACT --> VIS
+@enduml
+```
 
 **Definición de cada capa para SECOP:**
 
-| Capa | Qué es | Tamaño estimado | Quién la construye |
+| Capa | Qué es | Tamaño | Quién la construye |
 |---|---|---:|---|
-| **Bronze** | Copia cruda de la API de Socrata, 22 columnas `text`, sin transformar | ~18,7 GiB | José (script de carga) |
-| **Silver** | Tipos nativos de PostgreSQL, fechas validadas, dimensiones tipificadas y normalizadas, duplicados **marcados** | ~14 GiB | José (ETL) |
-| **Gold** | Esquema en estrella con PK/FK, `fact_contrato` particionado por año y vistas de negocio | ~11 – 13 GiB | Kerin (modelo) + José (DDL) |
+| **Bronze** | Copia cruda de los 10 CSV del SECOP, 22 columnas `text` más 3 de trazabilidad (`id_fila`, `fecha_carga`, `archivo_origen`), sin transformar | por medir (`volumetria.md` §9.2) | José (script de carga) |
+| **Silver** | Tipos nativos de PostgreSQL, fechas validadas, textos normalizados, duplicados exactos **eliminados** (R5) y anomalías **marcadas** | por medir (`volumetria.md` §9.2) | José (ETL) |
+| **Gold** | Esquema en estrella con PK/FK, `fact_contrato` particionado por año y vistas de consumo | ≈ 4,6 GB en tablas e índices, sin vistas materializadas (medido) | Kerin (modelo) + José (DDL) |
 
 **Regla de oro del proyecto:** Bronze nunca se reescribe, Silver normaliza, Gold modela. Cada transformación es reproducible desde Bronze.
 
@@ -355,41 +347,45 @@ title Modelo conceptual - entidades de negocio del SECOP
 left to right direction
 
 class ENTIDAD
-class CONTRATO
+class UBICACION
 class PROVEEDOR
-class TIPO_CONTRATO
-class MODALIDAD
-class ESTADO
-class ORIGEN
+class CLASIFICACION_DEL_CONTRATO
 class TIEMPO
+class CONTRATO
 
 ENTIDAD "1" -- "*" CONTRATO : convoca (codigo_entidad)
+UBICACION "1" -- "*" CONTRATO : ubica a la entidad contratante
 PROVEEDOR "1" -- "*" CONTRATO : ejecuta (documento_proveedor)
-TIPO_CONTRATO "1" -- "*" CONTRATO : clasifica
-MODALIDAD "1" -- "*" CONTRATO : define vía de contratación
-ESTADO "1" -- "*" CONTRATO : ciclo de vida
-ORIGEN "1" -- "*" CONTRATO : plataforma que lo publicó
-TIEMPO "1" -- "*" CONTRATO : firma / inicia / termina
+CLASIFICACION_DEL_CONTRATO "1" -- "*" CONTRATO : modalidad, tipo, estado y origen
+TIEMPO "1" -- "*" CONTRATO : firma / inicio / fin
 
-note right of ENTIDAD : ubicacion (departamento, municipio)
-note right of PROVEEDOR : tipo de documento
+note right of PROVEEDOR : tipo de persona\n(natural o juridica)
+note right of CLASIFICACION_DEL_CONTRATO : en el modelo logico\nes dim_contrato
 @enduml
 ```
 
 **Grano de la entidad `CONTRATO`:** una fila = **una versión de contrato**, es decir, una de las 13.005.402 filas de `silver.contratos`. SECOP II publica cada modificación como una fila nueva, así que un contrato con tres modificaciones aparece tres veces; eso es lo que permite analizar el fraccionamiento (RF-08). Los duplicados **exactos** se eliminan en plata (regla R5): 16.025.993 → 13.005.402.
 
-**Desviación de la especificación:** se pedían 9 dimensiones y el modelo tiene 7. `dim_ubicacion` y `dim_tipo_documento` se eliminaron porque sus atributos ya viven en `dim_entidad` y `dim_proveedor`; `dim_tiempo` quedó sin llave sustituta porque la clave de partición debe ser columna de la propia tabla. Los cuatro detalles están justificados en `decisiones_tecnicas.md` §2, §3 y §15.
+**El modelo sale de los requerimientos.** Por corrección del profesor, el modelo se derivó de los 14 requerimientos de negocio (RQ01-RQ14), no al revés. Resultado: **5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`):
+
+- `dim_ubicacion` está separada de `dim_entidad`, porque RQ05 es un requerimiento geográfico.
+- `dim_contrato` reúne modalidad, tipo, estado y origen, que describen cómo es el contrato y se consultan juntos.
+- `dim_tiempo` usa clave entera AAAAMMDD, va de 2000 a 2060 y se usa con tres roles (firma, inicio, fin).
+- El tipo de documento del proveedor no llega al modelo: se resume en `tipo_persona`.
+- Todas las dimensiones tienen un registro `-1` para el miembro desconocido.
+
+Los detalles están justificados en `decisiones_tecnicas.md` §2 a §6.
 
 ---
 
 ## 8. Checklist final de la entrega (miércoles 14/10)
 
 - [x] **E1 · Volumetría** — medición del corte vigente, con los puntos no medidos marcados como pendientes y su consulta.
-- [x] **E2 · Modelo** — diagrama conceptual + diagrama lógico en PlantUML, normalización 1FN/2FN/3FN explicada, DDL de las 7 dimensiones + `fact_contrato` con PK/FK.
+- [x] **E2 · Modelo** — diagrama conceptual + diagrama lógico en PlantUML, normalización 1FN/2FN/3FN explicada, DDL de las 5 dimensiones + `fact_contrato` con PK/FK.
 - [x] **E3 · Medallion** — Bronze/Silver/Gold explicados **y aplicados a SECOP**, con diagrama de arquitectura.
-- [x] **E4 · ETL** — descarga por años, `COPY FROM STDIN` por lotes, mapeo de tipos, saneamiento de fechas, normalización de categorías, índices y particionado.
+- [x] **E4 · ETL** — carga de los 10 CSV por años con `\copy`, mapeo de tipos, saneamiento de fechas, normalización de categorías, índices y particionado.
 - [ ] **E5 · Fotos** — ≥ 5 capturas PNG de alta resolución en `docs/imagenes/`, referenciadas desde el documento de visualizaciones.
-- [ ] `docs/requerimientos.md` con los 30 requisitos y su responsable asignado.
+- [ ] `docs/requerimientos.md` con los 32 requisitos (22 RF y 10 RNF) y su responsable asignado.
 - [ ] Revisión cruzada de los 3 miembros (comentada en el repositorio).
 - [ ] `README.md` permite a un tercero montar el entorno completo desde cero.
 - [ ] Commit final y entrega el **miércoles 14/10 a las 11:00**.
@@ -401,15 +397,18 @@ note right of PROVEEDOR : tipo de documento
 | Documento | Contenido | Estado |
 |---|---|---|
 | [volumetria.md](volumetria.md) | **Entregable 1** — volumetría medida del dataset y proyección a PostgreSQL | ✅ Completo |
-| [requerimientos.md](requerimientos.md) | 20 RF + 10 RNF con responsable asignado | ✅ Completo |
-| [README.md](README.md) | Índice de la documentación técnica | Pendiente |
-| modelo_relacional.md | Entregable 2 | ✅ Completo (Kerin) |
+| [requerimientos.md](requerimientos.md) | RQ01-RQ14, 22 RF y 10 RNF con responsable asignado | ✅ Completo |
+| [README.md](README.md) | Índice de la documentación técnica | ✅ Completo |
+| [modelo_relacional.md](modelo_relacional.md) | Entregable 2 | ✅ Completo (Kerin) |
+| [explicacion_e2.md](explicacion_e2.md) | Explicación teórica del Entregable 2 | ✅ Completo (Kerin) |
+| [decisiones_tecnicas.md](decisiones_tecnicas.md) | Por qué el modelo es así: 5 dimensiones, `dim_tiempo`, el `-1`, llaves degeneradas, reglas de negocio y R5 | ✅ Completo (Kerin) |
+| [medicion_estados_y_documentos.md](medicion_estados_y_documentos.md) | Medición de estados y tipos de documento | ✅ Completo (Kerin) |
+| [bitacora_sesiones.md](bitacora_sesiones.md) | Qué se hizo en cada sesión y qué errores aparecieron | ✅ Completo (Kerin) |
+| [instalacion-postgresql-dbeaver.md](instalacion-postgresql-dbeaver.md) | Montaje del entorno | ✅ Completo (José) |
+| [sql/ETL/README_ETL.md](../sql/ETL/README_ETL.md) | ETL de bronce y plata, reglas R1-R9b y hallazgos de calidad | ✅ Completo (José) |
 | etl_carga.md | Entregables 3 y 4 | Pendiente (José) |
 | visualizaciones.md + imagenes/ | Entregable 5 | Pendiente (Isabella) |
-| calidad_datos.md | Anomalías de la volumetría §8 desarrolladas | Pendiente (Isabella) |
+| calidad_datos.md | Anomalías de la volumetría §4 desarrolladas | Pendiente (Isabella) |
 | diccionario_datos.md | Las 22 columnas en detalle | Pendiente (Kerin) |
 | consultas_ejemplos.md | Consultas analíticas de negocio | Pendiente (Kerin) |
-| instalacion-postgresql-dbeaver.md | Montaje del entorno | Pendiente (José) |
 | glosario.md | Modalidades, mínima cuantía, régimen especial | Pendiente (Kerin) |
-| decisiones_tecnicas.md | ADR de particionado, BRIN, `dim_tiempo` y el `-1` | ✅ Completo (Kerin) |
-| bitacora_sesiones.md | Qué se hizo en cada lunes/miércoles | Pendiente (Kerin) |
