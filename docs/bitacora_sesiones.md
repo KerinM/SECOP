@@ -150,7 +150,7 @@ El profesor devolvió ocho correcciones al modelo. Se trabajó a partir de ellas
 
 ### Modelo resultante
 
-**5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`) y `fact_contrato`, particionada por rango sobre `sk_fecha_firma` (entero AAAAMMDD): **13 particiones**. `dim_tiempo` va de 2000 a 2060 con el registro `-1 SIN FECHA`, y se usa con tres roles: firma, inicio y fin. El grano es **una versión de contrato**, no un contrato.
+**5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`) y `fact_contrato`, particionada por rango sobre `sk_fecha_firma` (entero AAAAMMDD): **13 particiones**. `dim_tiempo` va de 2000 a 2060 con el registro `-1 SIN FECHA`, y se une al hecho por la fecha de firma; la duración y los días de firma a inicio son medidas. El grano es **una versión de contrato**, no un contrato.
 
 ### Hallazgos de la medición (`docs/medicion_estados_y_documentos.md`, 09/10/2026)
 

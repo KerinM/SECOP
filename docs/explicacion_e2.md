@@ -1,4 +1,4 @@
-# Explicación teórica del Entregable 2
+﻿# Explicación teórica del Entregable 2
 
 **Proyecto:** Data Warehouse SECOP · Capa oro y modelo relacional
 **Base de datos:** `secop_dw` · **DDL:** `sql/02_modelo_gold.sql` · **Vistas:** `sql/04_vistas.sql`
@@ -58,7 +58,7 @@ Decisiones que conviene conocer:
 
 - **`dim_contrato` reúne cuatro atributos en una sola dimensión.** Modalidad, tipo, estado y origen describen cómo es el contrato y se consultan juntos. Con solo 1.014 combinaciones reales, una dimensión basta y el hecho necesita una clave en lugar de cuatro.
 - **`dim_ubicacion` está separada de `dim_entidad`**, porque RQ05 es un requerimiento geográfico en sí mismo.
-- **`dim_tiempo` usa una clave entera AAAAMMDD** (`sk_tiempo`) y se usa con **tres roles** en el hecho: firma, inicio y fin. Así RQ06 puede calcular duraciones.
+- **`dim_tiempo` usa una clave entera AAAAMMDD** (`sk_tiempo`) y se une al hecho por la fecha de firma. RQ06 usa la medida `duracion_dias`.
 - **Todas las dimensiones tienen un registro `-1` (`NO REGISTRA`, o `SIN FECHA` en tiempo).** Las claves foráneas del hecho son `NOT NULL DEFAULT -1`, de modo que ninguna fila se pierde por una categoría ausente y «¿cuántos contratos no traen entidad?» se responde con un `WHERE`.
 - **Los `UNIQUE` de las claves naturales son planos**, sin collation especial: la normalización ocurrió antes, en plata, y es determinista.
 - **Se usan secuencias y no `IDENTITY`**, para poder insertar el `-1` de forma explícita.
@@ -69,7 +69,7 @@ Decisiones que conviene conocer:
 
 | Categoría | Columnas |
 |---|---|
-| Claves | `sk_fecha_firma` + `id_fila` (clave primaria compuesta); `sk_fecha_inicio`, `sk_fecha_fin`, `sk_entidad`, `sk_ubicacion`, `sk_proveedor`, `sk_contrato` |
+| Claves | `sk_fecha_firma` + `id_fila` (clave primaria compuesta); `sk_entidad`, `sk_ubicacion`, `sk_proveedor`, `sk_contrato` |
 | Llaves degeneradas | `id_contrato`, `id_proceso` |
 | Medidas | `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), `valor_gastado`, `duracion_dias`, `contrato_unidad` |
 | Banderas de calidad | `es_atipico`, `es_valor_extremo`, `es_valor_cero`, `es_valor_relleno`, `es_valor_repetido`, `es_version_contrato`, `es_fecha_invalida`, `es_fechas_incoherentes` |
@@ -103,7 +103,7 @@ Añadir 2028 requiere únicamente crear una partición nueva, sin migrar las 13 
 ### 4.6 Integridad e índices
 
 - **`UNIQUE`** en las claves naturales de las cuatro dimensiones categóricas, lo que garantiza joins 1:1 sin multiplicar filas y hace la carga idempotente.
-- **Claves foráneas** explícitas desde el hecho hacia las cinco dimensiones (tiempo con tres roles).
+- **Claves foráneas** explícitas desde el hecho hacia las cinco dimensiones (tiempo por la fecha de firma).
 - **Siete índices adicionales** además de la clave primaria: un BRIN sobre `sk_fecha_firma`, uno compuesto `(sk_fecha_firma, valor_ajustado)` y uno por `sk_proveedor`, `sk_entidad`, `sk_ubicacion`, `sk_contrato` e `id_contrato`.
 - **Sin índice** sobre `es_atipico` (booleano casi siempre falso) ni sobre `valor_ajustado` suelto (lo cubre el compuesto).
 - **Carga por tramos** (`lote_desde` y `lote_hasta`) e **idempotencia**: con `-v recrear=1` se reconstruye solo oro, sin tocar bronce ni plata.

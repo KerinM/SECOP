@@ -94,7 +94,7 @@ Si el grano subiera a «contrato» habría que elegir una fila por contrato y se
 | Ubicación | Contrato | 1 → N |
 | Proveedor | Contrato | 1 → N |
 | Clasificación | Contrato | 1 → N |
-| Tiempo | Contrato | 1 → N, **tres veces** (firma, inicio, fin) |
+| Tiempo | Contrato | 1 → N, por la fecha de firma |
 
 **No existe relación entre dimensiones.** Es lo que hace que sea una estrella y no un grafo.
 
@@ -152,7 +152,7 @@ Entidad       "1" --> "*" Contrato
 Ubicacion     "1" --> "*" Contrato
 Proveedor     "1" --> "*" Contrato
 Clasificacion "1" --> "*" Contrato
-Tiempo        "1" --> "*" Contrato : firma / inicio / fin
+Tiempo        "1" --> "*" Contrato : firma
 @enduml
 ```
 
@@ -228,8 +228,6 @@ entity "gold.fact_contrato" as fact_contrato {
   * sk_fecha_firma : integer <<PK, FK, partition key>>
   * id_fila : bigint <<PK>>
   --
-  sk_fecha_inicio : integer <<FK>>
-  sk_fecha_fin : integer <<FK>>
   sk_entidad : integer <<FK>>
   sk_ubicacion : integer <<FK>>
   sk_proveedor : integer <<FK>>
@@ -252,8 +250,6 @@ entity "gold.fact_contrato" as fact_contrato {
 }
 
 dim_tiempo    ||--o{ fact_contrato : "sk_fecha_firma"
-dim_tiempo    ||--o{ fact_contrato : "sk_fecha_inicio"
-dim_tiempo    ||--o{ fact_contrato : "sk_fecha_fin"
 dim_entidad   ||--o{ fact_contrato : "sk_entidad"
 dim_ubicacion ||--o{ fact_contrato : "sk_ubicacion"
 dim_proveedor ||--o{ fact_contrato : "sk_proveedor"
@@ -265,7 +261,7 @@ dim_contrato  ||--o{ fact_contrato : "sk_contrato"
 
 | Categoría | Columnas | Uso |
 |---|---|---|
-| **Claves** | `sk_fecha_firma` + `id_fila` (PK compuesta); `sk_fecha_inicio`, `sk_fecha_fin`, `sk_entidad`, `sk_ubicacion`, `sk_proveedor`, `sk_contrato` | Unen el hecho con las dimensiones. No se agregan |
+| **Claves** | `sk_fecha_firma` + `id_fila` (PK compuesta); `sk_entidad`, `sk_ubicacion`, `sk_proveedor`, `sk_contrato` | Unen el hecho con las dimensiones. No se agregan |
 | **Llaves degeneradas** | `id_contrato`, `id_proceso` | Agrupan versiones y permiten bajar al detalle. Sin dimensión propia (`decisiones_tecnicas.md` §4) |
 | **Medidas aditivas** | `valor_ajustado`, `valor_gastado`, `contrato_unidad` | Se suman |
 | **Medida no aditiva** | `valor_contrato` | Se conserva por fidelidad; **no se suma** |
@@ -293,7 +289,7 @@ Medidas **derivadas** que no se almacenan (se calculan en las vistas): valor pro
 
 Calendario **2000-01-01 a 2060-12-31** (22.281 días) más el registro `-1 SIN FECHA`: **22.282 filas** (medido, verificación 9.12 en `t`). Clave entera `sk_tiempo` = AAAAMMDD.
 
-Se usa con **tres roles** en el hecho (firma, inicio y fin). El entero sirve como clave de partición, lo que invalida la justificación anterior de usar la fecha como clave natural (`decisiones_tecnicas.md` §5).
+Se une al hecho **una sola vez**, por la fecha de firma (`sk_fecha_firma`). Las fechas de inicio y fin no son llaves foráneas: se resumen en `duracion_dias` y `dias_firma_a_inicio`. El entero sirve como clave de partición, lo que invalida la justificación anterior de usar la fecha como clave natural (`decisiones_tecnicas.md` §5).
 
 ### 7.2 `dim_entidad` y `dim_ubicacion`
 
@@ -497,7 +493,7 @@ La verificación 9.9 es la que importa: un modelo perfectamente normalizado que 
 | 3 | `dim_tipo_contrato`, `dim_modalidad`, `dim_estado`, `dim_origen` | `dim_contrato` | Una FK en vez de cuatro |
 | 4 | Tipo de documento | `tipo_persona` | Corrección del profesor |
 | 5 | `dim_tiempo` 1900-2030, clave natural, centinela 1900-01-01 | 2000-2060, clave entera, registro `-1` | El entero sirve de clave de partición |
-| 6 | Una referencia a tiempo | **Tres roles**: firma, inicio, fin | RQ06 necesita la duración |
+| `dias_firma_a_inicio` | `fecha_inicio − fecha_firma`; NULL si falta una de las dos; puede ser negativo (hecho del dato, no se corrige) | calculada en la carga |
 | 7 | `contratos` y `valor_total` en dimensiones | Eliminadas | Se calculan en vistas |
 | 8 | Sin métrica de gasto ni estado | `valor_gastado`, `agrupacion_estado` | RQ13 y RQ14 |
 | 9 | Régimen especial como competitivo | No competitivo | Decisión del grupo |

@@ -130,9 +130,11 @@ La ausencia de fecha se representa con `sk_tiempo = -1` (`fecha` NULL, `es_sin_f
 
 Con esto el modelo es uniforme: **todas** las dimensiones tienen un `-1` y **todas** las FK del hecho son `NOT NULL DEFAULT -1`.
 
-### 5.4 Tres roles de la misma dimensión
+### 5.4 Un solo rol de tiempo: la fecha de firma
 
-`fact_contrato` referencia a `dim_tiempo` **tres veces**: `sk_fecha_firma`, `sk_fecha_inicio` y `sk_fecha_fin`. Es la técnica de *role-playing dimension*: una sola tabla física con tres papeles. `v_contratos` la une tres veces con alias distintos.
+`fact_contrato` referencia a `dim_tiempo` **una sola vez**, por `sk_fecha_firma`. Es la estructura de las diapositivas del grupo. Las fechas de inicio y fin **no son llaves foráneas**: se resumen en dos medidas calculadas en la carga, `duracion_dias` (`fecha_fin − fecha_inicio`) y `dias_firma_a_inicio` (`fecha_inicio − fecha_firma`). Ambas son NULL si falta alguna de las dos fechas, y `dias_firma_a_inicio` puede ser negativo cuando el inicio es anterior a la firma: es un hecho del dato, no se corrige.
+
+**Costo asumido:** no se puede analizar por mes o año de inicio o de fin como dimensión. Ningún RQ lo pide (RQ06 usa `duracion_dias`). Las fechas originales se recuperan por `id_fila` desde `silver.contratos`.
 
 ### 5.5 El `::timestamp` del `generate_series` no es cosmético
 
@@ -281,6 +283,7 @@ valor_gastado = valor_ajustado   si  NOT es_atipico
 | `valor_gastado` | Valor contratado vigente | Sección 8.4 |
 | `contrato_unidad` | Constante 1 por fila | Permite contar versiones con `SUM`, útil en Power BI |
 | `duracion_dias` | `fecha_fin − fecha_inicio` | Se calcula en la carga (no es columna generada); NULL si falta una fecha. Las duraciones negativas están marcadas con `es_fechas_incoherentes` |
+| `dias_firma_a_inicio` | `fecha_inicio − fecha_firma` | Se calcula en la carga; NULL si falta una fecha. Puede ser negativo (inicio anterior a la firma): es un hecho del dato |
 
 Las demás cifras (valor promedio, % no competitivo, participación de SECOP II, % de valor atípico) **no se almacenan**: se derivan en las vistas de Power BI (`sql/04_vistas.sql`), que es donde se calcula lo agregado.
 
@@ -495,7 +498,7 @@ Las tres capas coexisten para poder auditar. Decisión: **no se implementa ahora
 | 3 | `dim_tipo_contrato`, `dim_modalidad`, `dim_estado`, `dim_origen` | **`dim_contrato`** | Una FK en vez de cuatro (3.3) |
 | 4 | Atributos de tipo de documento | **`tipo_persona`** | Corrección del profesor (3.2, 8.1) |
 | 5 | `dim_tiempo` 1900-2030, clave natural, centinela 1900 | **2000-2060, clave entera AAAAMMDD, registro -1** | El entero sirve de clave de partición (5) |
-| 6 | 1 FK de tiempo | **3 roles** (firma, inicio, fin) | RQ06 necesita duración (5.4) |
+| 6 | 1 FK de tiempo | **1 FK de tiempo** (firma) y 2 medidas: `duracion_dias`, `dias_firma_a_inicio` | Coincide con las diapositivas del grupo (5.4) |
 | 7 | `contratos` y `valor_total` en dimensiones | **Eliminadas** | Se calculan en vistas (13) |
 | 8 | Sin métrica de gasto | **`valor_gastado`** | RQ14 (8.4) |
 | 9 | Régimen especial como competitivo | **No competitivo** | Decisión del grupo (8.2) |
