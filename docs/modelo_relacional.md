@@ -303,7 +303,7 @@ Se usa con **tres roles** en el hecho (firma, inicio y fin). El entero sirve com
 
 ### 7.3 `dim_proveedor` y `tipo_persona`
 
-Clave natural `documento_proveedor` (ya normalizado en plata, R8). **2.178.560 filas** incluido el `-1` (medido, conteo real).
+Clave natural `documento_proveedor` (ya normalizado en plata, R8). **2.181.587 filas** incluido el `-1` (medido, conteo real).
 
 `tipo_persona` es una **regla de negocio** (`gold.clasificar_persona`), asignada **por documento**: si un mismo documento aparece con tipos distintos, **JURIDICA gana sobre NATURAL, y NATURAL sobre NO CLASIFICADO**. El tipo de documento original **no se modela**.
 

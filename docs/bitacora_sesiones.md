@@ -205,7 +205,7 @@ Estados de SECOP II (antes → ahora): `CERRADO` 1.174.268 → **1.674.727**, `T
 ### Resultado en oro (medido, verificación 9)
 
 - Plata = oro = **13.005.402**; 0 huérfanos en las 7 claves foráneas; 0 PK duplicadas; 13 particiones, todas en `gold`.
-- Cardinalidades, con el registro `-1`: `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` **2.178.560**, `dim_contrato` **1.015**, `dim_tiempo` 22.282.
+- Cardinalidades, con el registro `-1`: `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` **2.181.587**, `dim_contrato` **1.015**, `dim_tiempo` 22.282.
 - `tipo_persona` por fila: NATURAL **9.979.421**, JURIDICA **2.907.838**, NO CLASIFICADO **118.143**. Hay 83.363 documentos con tipos contradictorios (2.551.616 filas, 19,6 %).
 - `valor_gastado` por agrupación de estado (billones): VIGENTE 408,14 · INICIO 383,05 · TERMINADO 257,65 · CERRADO 73,37 · SUSPENDIDO O CEDIDO 29,75 · PRECONTRACTUAL y CANCELADO 0.
 - `valor_gastado` nunca supera el valor ajustado, y `secop_lectura` ve `gold` pero no `silver`.

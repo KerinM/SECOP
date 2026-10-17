@@ -1,4 +1,4 @@
-﻿# Explicación teórica del Entregable 2
+# Explicación teórica del Entregable 2
 
 **Proyecto:** Data Warehouse SECOP · Capa oro y modelo relacional
 **Base de datos:** `secop_dw` · **DDL:** `sql/02_modelo_gold.sql` · **Vistas:** `sql/04_vistas.sql`
@@ -172,7 +172,7 @@ La verificación se ejecutó sobre la **carga completa** de oro (13.005.402 fila
 | Dinero de 2018 sin atípicos | **102,54 billones** (oficial ≈ 100) |
 | `secop_lectura` | ve `gold`, no ve `silver` |
 
-Cardinalidades medidas (con el registro `-1`): `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` 2.178.560, `dim_contrato` 1.015 y `dim_tiempo` 22.282.
+Cardinalidades medidas (con el registro `-1`): `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` 2.181.587, `dim_contrato` 1.015 y `dim_tiempo` 22.282.
 
 Además, la plata que alimenta a oro pasó **18 de 18 validaciones en SQL** y **43 de 43 pruebas independientes en Python**, que vuelven a limpiar una muestra de ≈ 100.000 filas con otra herramienta y comparan columna por columna.
 
