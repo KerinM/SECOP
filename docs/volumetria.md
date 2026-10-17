@@ -487,7 +487,7 @@ FROM silver.contratos;
 5. **Marcar es mejor que borrar.** Las 33.939 filas atípicas siguen ahí, marcadas. Borrarlas daría un número más limpio y peor, porque ocultaría el vacío. Lo mismo con las 616 fechas incoherentes.
 6. **El dinero se suma con `valor_ajustado`, nunca con `valor_contrato`.** 2018 da 102,54 billones frente a ≈ 100 oficiales; con el valor sin ajustar daba ≈ 692.
 7. **El conteo nunca se lee de la ficha del portal.** La metadata del portal está desfasada; hay que contar con `count(*)`. Es la razón de que RF-14 obligue a recontar después de cargar.
-8. **Lo que no se puede proyectar es el número de claves distintas de un texto libre**, y por eso las cardinalidades de las dimensiones se reportan medidas (15.821 entidades, 2.178.559 proveedores, 1.176 ubicaciones, 1.014 combinaciones de contrato).
+8. **Lo que no se puede proyectar es el número de claves distintas de un texto libre**, y por eso las cardinalidades de las dimensiones se reportan medidas (15.821 entidades, 2.181.586 proveedores, 1.176 ubicaciones, 1.014 combinaciones de contrato).
 9. **La volumetría tiene dos puntos aún sin medir y eso es visible en el documento:** el tamaño real de `gold` en disco (sección 5.3) y los valores distintos por atributo de `dim_contrato` (3.3). Cada uno tiene su consulta en la sección 9.
 
 ---
