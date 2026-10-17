@@ -295,7 +295,7 @@ Las cuatro dimensiones categóricas tienen `UNIQUE` en su clave natural (`codigo
 
 `dim_entidad` y `dim_proveedor` se cargan con `GROUP BY` y no con `SELECT DISTINCT`, porque una misma clave puede traer atributos distintos (el mismo código de entidad con dos nombres, el mismo documento con dos razones sociales). `max()` elige uno: es una decisión consciente, no un dato perdido, porque los atributos originales siguen en `silver.contratos` y se recuperan por `id_fila`.
 
-**Medido en la carga:** 15.821 entidades y 2.178.559 proveedores nuevos (más el `-1` en cada una). El conteo real de `dim_proveedor` es **2.178.560**. `pg_stat_user_tables.n_live_tup` es una estimación y no es exacta tras un `UPDATE` masivo: para cifras oficiales se usa `count(*)`.
+**Medido en la carga:** 15.821 entidades y 2.181.586 proveedores nuevos (más el `-1` en cada una). El conteo real de `dim_proveedor` es **2.181.587**. `pg_stat_user_tables.n_live_tup` es una estimación y no es exacta tras un `UPDATE` masivo: para cifras oficiales se usa `count(*)`.
 
 ---
 

@@ -122,11 +122,11 @@ Los conteos por archivo son los de `bronze.log_cargas`; los rangos de `id_fila` 
 |---|---|---:|---|
 | `dim_entidad` | `codigo_entidad` (nombre, NIT, nivel) | **15.821** + el `-1` | medido |
 | `dim_ubicacion` | pares `(departamento, municipio)` | **1.176** + el `-1` | medido |
-| `dim_proveedor` | `documento_proveedor` | **2.178.559** + el `-1` = 2.181.587 | medido |
+| `dim_proveedor` | `documento_proveedor` | **2.181.586** + el `-1` = 2.181.587 | medido |
 | `dim_contrato` | combinación `(modalidad, tipo_contrato, estado_proceso, origen)` | **1.014** + el `-1` | medido |
 | `dim_tiempo` | calendario 2000-01-01 a 2060-12-31 | **22.282** (22.281 días + el `-1`) | medido |
 
-> **`dim_proveedor`: 2.178.559, no 2.178.559.** Una cifra anterior de 2.178.559 era incorrecta. Tres consultas independientes dan 2.178.559: documentos distintos en plata, filas de la dimensión sin el `-1` y proveedores presentes en `fact_contrato`.
+> **`dim_proveedor`: 2.181.586 proveedores, 2.181.587 filas con el `-1`.** Cifras anteriores (2.178.559 y 2.178.560) eran incorrectas. Se verificó con `count(*)` sobre la dimensión y con `mv_kpis_globales` (2.181.586 proveedores).
 
 **Medido sobre `fact_contrato` y `dim_ubicacion`:**
 
