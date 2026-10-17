@@ -446,7 +446,7 @@ El bloque 9 del DDL ejecuta 17 comprobaciones. Resultado de la carga vigente, po
 |---|---|---|---|
 | 9.1 | Objetos de oro (5 dimensiones + 1 hecho) | 6 | ✔ |
 | 9.3 / 9.4 | Particiones, todas en `gold` | 13 | ✔ |
-| 9.5 | Huérfanos por FK (7 conteos) | 0 | ✔ |
+| 9.5 | Huérfanos por FK (5 conteos) | 0 | ✔ |
 | 9.6 | `silver` − `fact_contrato` | 0 | ✔ (13.005.402 = 13.005.402) |
 | 9.7 | `(sk_fecha_firma, id_fila)` duplicados | 0 | ✔ |
 | 9.8 | Filas en `-1` | Coincide con los vacíos de plata | ✔ |

@@ -162,7 +162,7 @@ La verificación se ejecutó sobre la **carga completa** de oro (13.005.402 fila
 |---|---|
 | Objetos de oro (5 dimensiones + 1 hecho) | 6 |
 | Particiones, todas en `gold` | 13 |
-| Huérfanos por clave foránea (7 claves) | 0 |
+| Huérfanos por clave foránea (5 claves) | 0 |
 | Plata menos oro | 0 (13.005.402 = 13.005.402) |
 | Claves primarias duplicadas | 0 |
 | `dim_tiempo` | 22.282 filas, sin huecos |
