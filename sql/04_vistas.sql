@@ -482,11 +482,12 @@ SELECT
     r.sk_entidad,
     e.codigo_entidad, e.nombre_entidad, e.nivel_entidad,
     r.anio,
-    sum(r.versiones_validas)::bigint                                              AS versiones_validas,
-    (sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false))::bigint    AS versiones_no_competitivas,
-    round(100.0 * sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false)
-          / nullif(sum(r.versiones_validas), 0), 2)                               AS pct_no_competitiva,
-    (r.anio = max(r.anio) OVER ())                                                AS es_anio_parcial
+    coalesce(sum(r.versiones_validas), 0)::bigint AS versiones_validas,
+    coalesce(sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false), 0)::bigint
+                                     AS versiones_no_competitivas,
+    round(100.0 * coalesce(sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false), 0)
+          / nullif(sum(r.versiones_validas), 0), 2) AS pct_no_competitiva,
+    (r.anio = max(r.anio) OVER ()) AS es_anio_parcial
 FROM gold.mv_entidad_resumen r
 JOIN gold.dim_entidad e ON e.sk_entidad = r.sk_entidad
 WHERE r.sk_entidad <> -1
