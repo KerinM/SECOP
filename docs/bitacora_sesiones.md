@@ -150,7 +150,7 @@ El profesor devolvió ocho correcciones al modelo. Se trabajó a partir de ellas
 
 ### Modelo resultante
 
-**5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`) y `fact_contrato`, particionada por rango sobre `sk_fecha_firma` (entero AAAAMMDD): **13 particiones**. `dim_tiempo` va de 2000 a 2060 con el registro `-1 SIN FECHA`, y se usa con tres roles: firma, inicio y fin. El grano es **una versión de contrato**, no un contrato.
+**5 dimensiones** (`dim_tiempo`, `dim_entidad`, `dim_ubicacion`, `dim_proveedor`, `dim_contrato`) y `fact_contrato`, particionada por rango sobre `sk_fecha_firma` (entero AAAAMMDD): **13 particiones**. `dim_tiempo` va de 2000 a 2060 con el registro `-1 SIN FECHA`, y se une al hecho por la fecha de firma; la duración y los días de firma a inicio son medidas. El grano es **una versión de contrato**, no un contrato.
 
 ### Hallazgos de la medición (`docs/medicion_estados_y_documentos.md`, 09/10/2026)
 
@@ -204,8 +204,8 @@ Estados de SECOP II (antes → ahora): `CERRADO` 1.174.268 → **1.674.727**, `T
 
 ### Resultado en oro (medido, verificación 9)
 
-- Plata = oro = **13.005.402**; 0 huérfanos en las 7 claves foráneas; 0 PK duplicadas; 13 particiones, todas en `gold`.
-- Cardinalidades, con el registro `-1`: `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` **2.178.560**, `dim_contrato` **1.015**, `dim_tiempo` 22.282.
+- Plata = oro = **13.005.402**; 0 huérfanos en las 5 claves foráneas; 0 PK duplicadas; 13 particiones, todas en `gold`.
+- Cardinalidades, con el registro `-1`: `dim_entidad` 15.822, `dim_ubicacion` 1.177, `dim_proveedor` **2.181.587**, `dim_contrato` **1.015**, `dim_tiempo` 22.282.
 - `tipo_persona` por fila: NATURAL **9.979.421**, JURIDICA **2.907.838**, NO CLASIFICADO **118.143**. Hay 83.363 documentos con tipos contradictorios (2.551.616 filas, 19,6 %).
 - `valor_gastado` por agrupación de estado (billones): VIGENTE 408,14 · INICIO 383,05 · TERMINADO 257,65 · CERRADO 73,37 · SUSPENDIDO O CEDIDO 29,75 · PRECONTRACTUAL y CANCELADO 0.
 - `valor_gastado` nunca supera el valor ajustado, y `secop_lectura` ve `gold` pero no `silver`.

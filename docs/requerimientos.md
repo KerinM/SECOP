@@ -79,7 +79,7 @@
 | `dim_proveedor` | `sk_proveedor`, `documento_proveedor` (clave natural), nombre, **`tipo_persona`** | RQ04, RQ10 |
 | `dim_contrato` | `sk_contrato`, modalidad, `es_competitiva`, tipo de contrato, estado, **`agrupacion_estado`**, origen | RQ03, RQ06, RQ08, RQ11, RQ13 |
 
-**Hecho:** llaves foráneas a las 5 dimensiones (tiempo con 3 roles: firma, inicio y fin); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
+**Hecho:** llaves foráneas a las 5 dimensiones (tiempo por la fecha de firma); llaves degeneradas **solo `id_contrato` e `id_proceso`**; medidas `valor_contrato` (no se suma), `valor_ajustado` (la que se suma), **`valor_gastado`**, `duracion_dias`, `contrato_unidad`; las 8 banderas de calidad. **Particionada por RANGE sobre `sk_fecha_firma`: 13 particiones** (cuarentena + 2017-2027 + por defecto).
 
 > **Decidido:** `dim_tiempo` va de 2000 a 2060, con clave entera AAAAMMDD y el registro -1 «SIN FECHA», como en las diapositivas. La dimensión de clasificación se llama `dim_contrato`.
 

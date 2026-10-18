@@ -370,7 +370,7 @@ note right of CLASIFICACION_DEL_CONTRATO : en el modelo logico\nes dim_contrato
 
 - `dim_ubicacion` está separada de `dim_entidad`, porque RQ05 es un requerimiento geográfico.
 - `dim_contrato` reúne modalidad, tipo, estado y origen, que describen cómo es el contrato y se consultan juntos.
-- `dim_tiempo` usa clave entera AAAAMMDD, va de 2000 a 2060 y se usa con tres roles (firma, inicio, fin).
+- `dim_tiempo` usa clave entera AAAAMMDD, va de 2000 a 2060 y se une al hecho por la fecha de firma.
 - El tipo de documento del proveedor no llega al modelo: se resume en `tipo_persona`.
 - Todas las dimensiones tienen un registro `-1` para el miembro desconocido.
 

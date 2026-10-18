@@ -270,15 +270,16 @@ COMMENT ON MATERIALIZED VIEW gold.mv_kpis_globales IS
 -- 1.8 mv_calidad_datos  ·  reporte de anomalias (RF-19)
 -- Lee oro SIN filtrar. Los duplicados eliminados salen de bronce - oro
 -- (plata = oro = 13.005.402); la base de ese porcentaje es bronce.
--- CORRECCION: las columnas de bronce viven en el alias bz, no en b.
+-- Las fechas de inicio y fin no son FK en oro: sus vacios se miden con
+-- dias_firma_a_inicio y duracion_dias, que son NULL si falta alguna.
 -- ---------------------------------------------------------------------
 CREATE MATERIALIZED VIEW gold.mv_calidad_datos AS
 WITH base AS (
     SELECT
         count(*)                                                  AS total,
         count(*) FILTER (WHERE sk_fecha_firma  = -1)              AS sin_fecha_firma,
-        count(*) FILTER (WHERE sk_fecha_inicio = -1)              AS sin_fecha_inicio,
-        count(*) FILTER (WHERE sk_fecha_fin    = -1)              AS sin_fecha_fin,
+        count(*) FILTER (WHERE dias_firma_a_inicio IS NULL)       AS sin_dias_firma_inicio,
+        count(*) FILTER (WHERE duracion_dias IS NULL)             AS sin_duracion,
         count(*) FILTER (WHERE es_fecha_invalida)                 AS fecha_invalida,
         count(*) FILTER (WHERE es_fechas_incoherentes)            AS fechas_incoherentes,
         count(*) FILTER (WHERE es_valor_cero)                     AS valor_cero,
@@ -304,8 +305,8 @@ CROSS JOIN LATERAL (VALUES
     ( 2, '0 · Referencia',        'Filas en oro (versiones de contrato)',        '-',   b.total,              bz.bronce),
     ( 3, '1 · Duplicados',        'Duplicados exactos eliminados',               'R5',  bz.bronce - b.total,  bz.bronce),
     ( 4, '2 · Fechas',            'Sin fecha de firma valida',                   'R4',  b.sin_fecha_firma,   b.total),
-    ( 5, '2 · Fechas',            'Sin fecha de inicio valida',                  'R4',  b.sin_fecha_inicio,  b.total),
-    ( 6, '2 · Fechas',            'Sin fecha de fin valida',                     'R4',  b.sin_fecha_fin,     b.total),
+    ( 5, '2 · Fechas',            'Sin dias de firma a inicio (falta una fecha)', 'R4', b.sin_dias_firma_inicio, b.total),
+    ( 6, '2 · Fechas',            'Sin duracion calculable (falta inicio o fin)', 'R4', b.sin_duracion,      b.total),
     ( 7, '2 · Fechas',            'Filas con alguna fecha imposible',            'R4',  b.fecha_invalida,    b.total),
     ( 8, '2 · Fechas',            'Fecha de fin anterior a la de inicio',        'R4',  b.fechas_incoherentes, b.total),
     ( 9, '3 · Valores',           'Valor en cero o negativo',                    'R6',  b.valor_cero,        b.total),
@@ -322,7 +323,7 @@ CROSS JOIN LATERAL (VALUES
 WITH NO DATA;
 
 COMMENT ON MATERIALIZED VIEW gold.mv_calidad_datos IS
-    'Anomalias medidas con cantidad y porcentaje (RF-14, RF-19). Cubre R4 a R9b y los miembros -1. El porcentaje de las filas de referencia y de duplicados es sobre bronce; el resto, sobre oro.';
+    'Anomalias medidas con cantidad y porcentaje (RF-14, RF-19). Cubre R4 a R9b y los miembros -1. El porcentaje de las filas de referencia y de duplicados es sobre bronce; el resto, sobre oro. Los vacios de fecha de inicio y fin se miden con dias_firma_a_inicio y duracion_dias.';
 
 -- =====================================================================
 -- 2. VISTAS DE CONSUMO
@@ -481,11 +482,12 @@ SELECT
     r.sk_entidad,
     e.codigo_entidad, e.nombre_entidad, e.nivel_entidad,
     r.anio,
-    sum(r.versiones_validas)::bigint                                              AS versiones_validas,
-    (sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false))::bigint    AS versiones_no_competitivas,
-    round(100.0 * sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false)
-          / nullif(sum(r.versiones_validas), 0), 2)                               AS pct_no_competitiva,
-    (r.anio = max(r.anio) OVER ())                                                AS es_anio_parcial
+    coalesce(sum(r.versiones_validas), 0)::bigint AS versiones_validas,
+    coalesce(sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false), 0)::bigint
+                                     AS versiones_no_competitivas,
+    round(100.0 * coalesce(sum(r.versiones_validas) FILTER (WHERE r.es_competitiva = false), 0)
+          / nullif(sum(r.versiones_validas), 0), 2) AS pct_no_competitiva,
+    (r.anio = max(r.anio) OVER ()) AS es_anio_parcial
 FROM gold.mv_entidad_resumen r
 JOIN gold.dim_entidad e ON e.sk_entidad = r.sk_entidad
 WHERE r.sk_entidad <> -1

@@ -55,7 +55,7 @@ Diseñar e implementar un Data Warehouse con arquitectura Medallón que conviert
 |---|---:|---|
 | `bronze.secop_raw` | 16.025.993 | `count(*)` igual al total de los 10 CSV |
 | `silver.contratos` | 13.005.402 | 18 validaciones automáticas en SQL y 43 pruebas independientes en Python, todas en OK |
-| `gold.fact_contrato` | 13.005.402 | 0 huérfanos en las 7 claves foráneas, 13 particiones en `gold`, 2018 = 102,54 billones |
+| `gold.fact_contrato` | 13.005.402 | 0 huérfanos en las 5 claves foráneas, 13 particiones en `gold`, 2018 = 102,54 billones |
 
 Lo pendiente es el tablero de Power BI (Entregable 5), la confirmación con el profesor de la definición de «gastado» y la documentación final en PDF.
 

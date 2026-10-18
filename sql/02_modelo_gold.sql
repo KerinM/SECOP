@@ -12,6 +12,9 @@
 --   5 dimensiones: dim_tiempo, dim_entidad, dim_ubicacion,
 --                  dim_proveedor, dim_contrato
 --   1 hecho      : fact_contrato (grano = una VERSION de contrato)
+--   dim_tiempo se une al hecho UNA sola vez: por la fecha de firma.
+--   La duracion y los dias de firma a inicio se guardan como medidas
+--   (duracion_dias, dias_firma_a_inicio) calculadas en la carga.
 --
 -- QUE HACE ESTE SCRIPT Y QUE NO
 --   HACE   : crea las 5 dimensiones y la tabla de hechos de la capa oro.
@@ -19,11 +22,12 @@
 --            "modo recrear", y solo afecta a gold.
 --
 -- REJECUTABLE
---   psql -U secop_etl -d secop_dw -f sql/02_modelo_gold.sql
---   psql -U secop_etl -d secop_dw -v recrear=1 -f sql/02_modelo_gold.sql
+--   psql -U postgres -d secop_dw -f sql/02_modelo_gold.sql
+--   psql -U postgres -d secop_dw -v recrear=1 -f sql/02_modelo_gold.sql
 --
--- Si existia una version anterior de gold (7 dimensiones), usar recrear=1:
--- sin ese modo, CREATE TABLE IF NOT EXISTS dejaria las tablas viejas.
+-- Si existia una version anterior de gold (con fecha de inicio y fin
+-- como FK), usar recrear=1: sin ese modo, CREATE TABLE IF NOT EXISTS
+-- dejaria la tabla vieja.
 --
 -- REGLAS DE NEGOCIO DEFINIDAS EN ESTE ARCHIVO (no son mediciones):
 --   * tipo_persona        -> gold.clasificar_persona()
@@ -189,17 +193,17 @@ COMMENT ON FUNCTION gold.rango_estado(text) IS
 -- generate_series y existe completo aunque un dia no tenga contratos.
 --
 -- CLAVE: sk_tiempo = entero AAAAMMDD (20180315). Es legible y es un entero,
--- que PostgreSQL acepta como clave de particion. Por eso ya NO hace falta
--- usar la fecha como clave ni duplicarla en la tabla de hechos.
+-- que PostgreSQL acepta como clave de particion.
+--
+-- UN SOLO ROL: fact_contrato se une a dim_tiempo por la fecha de firma.
+-- Las fechas de inicio y fin no son FK: se resumen en duracion_dias
+-- (fin - inicio) y dias_firma_a_inicio (inicio - firma).
 --
 -- AUSENCIA DE FECHA: la fila sk_tiempo = -1 'SIN FECHA' (fecha NULL) es el
--- miembro desconocido, igual que en las demas dimensiones. Reemplaza al
--- centinela 1900-01-01 del modelo anterior.
+-- miembro desconocido, igual que en las demas dimensiones.
 --
 -- RANGO 2000-2060: plata deja fecha_firma en [2000-01-01, fecha de descarga]
--- y fecha_inicio / fecha_fin en [2000-01-01, 2060-12-31] (regla R4). Toda
--- fecha valida de plata tiene fila aqui.
--- 22.281 dias = 61 anios * 365 + 16 bisiestos (2000, 2004, ... 2060).
+-- (regla R4). 22.281 dias = 61 anios * 365 + 16 bisiestos (2000, ..., 2060).
 -- Con el registro -1 son 22.282 filas.
 --
 -- EL CAST A ::timestamp NO ES COSMETICO. Con un DATE, PostgreSQL resuelve
@@ -225,7 +229,7 @@ CREATE TABLE IF NOT EXISTS gold.dim_tiempo (
 );
 
 COMMENT ON TABLE gold.dim_tiempo IS
-    'Calendario 2000-01-01 a 2060-12-31 (22.281 dias) mas el registro -1 SIN FECHA. Clave entera AAAAMMDD. Se usa con 3 roles en fact_contrato: firma, inicio y fin.';
+    'Calendario 2000-01-01 a 2060-12-31 (22.281 dias) mas el registro -1 SIN FECHA. Clave entera AAAAMMDD. Se une a fact_contrato por la fecha de firma (un solo rol).';
 COMMENT ON COLUMN gold.dim_tiempo.es_sin_fecha IS
     'TRUE solo en sk_tiempo = -1. Todo KPI temporal debe excluirlo.';
 
@@ -374,19 +378,22 @@ ON CONFLICT DO NOTHING;
 -- UNA vez.
 --
 -- MEDIDAS
---   valor_contrato  tal cual llega. Se conserva por fidelidad. NO se suma.
---   valor_ajustado  la que se suma. Para dinero, excluir es_atipico.
---   valor_gastado   valor contratado VIGENTE (RQ14, RF-21). Definicion
---                   derivada: la fuente no trae valor pagado ni ejecutado,
---                   asi que NUNCA se presenta como dinero pagado.
---                   = valor_ajustado si el contrato no es atipico y su
---                     agrupacion_estado NO es PRECONTRACTUAL, CANCELADO ni
---                     NO REGISTRA; en cualquier otro caso = 0.
---   duracion_dias   fecha_fin - fecha_inicio (NULL si falta alguna).
---   contrato_unidad = 1 en cada fila; permite contar versiones con SUM.
+--   valor_contrato       tal cual llega. Se conserva por fidelidad. NO se suma.
+--   valor_ajustado       la que se suma. Para dinero, excluir es_atipico.
+--   valor_gastado        valor contratado VIGENTE (RQ14, RF-21). Definicion
+--                        derivada: la fuente no trae valor pagado ni ejecutado,
+--                        asi que NUNCA se presenta como dinero pagado.
+--                        = valor_ajustado si el contrato no es atipico y su
+--                          agrupacion_estado NO es PRECONTRACTUAL, CANCELADO ni
+--                          NO REGISTRA; en cualquier otro caso = 0.
+--   duracion_dias        fecha_fin - fecha_inicio (NULL si falta alguna).
+--   dias_firma_a_inicio  fecha_inicio - fecha_firma (NULL si falta alguna).
+--                        Puede ser negativo si el inicio es anterior a la
+--                        firma: es un hecho del dato, no se corrige.
+--   contrato_unidad      = 1 en cada fila; permite contar versiones con SUM.
 --
--- LLAVES FORANEAS: 7 enteras. dim_tiempo participa con 3 roles
--- (firma, inicio, fin); las otras 4 dimensiones, con una cada una.
+-- LLAVES FORANEAS: 5, una por dimension. dim_tiempo se une por la fecha de
+-- firma (sk_fecha_firma).
 -- LLAVES DEGENERADAS: solo id_contrato e id_proceso.
 --
 -- CLAVE PRIMARIA: (sk_fecha_firma, id_fila). id_fila NO se genera: es
@@ -400,12 +407,6 @@ CREATE TABLE IF NOT EXISTS gold.fact_contrato (
                      REFERENCES gold.dim_tiempo(sk_tiempo),
     id_fila          bigint  NOT NULL,
 
-    sk_fecha_inicio  integer NOT NULL DEFAULT -1
-                     CONSTRAINT fk_fact_fecha_inicio
-                     REFERENCES gold.dim_tiempo(sk_tiempo),
-    sk_fecha_fin     integer NOT NULL DEFAULT -1
-                     CONSTRAINT fk_fact_fecha_fin
-                     REFERENCES gold.dim_tiempo(sk_tiempo),
     sk_entidad       integer NOT NULL DEFAULT -1
                      REFERENCES gold.dim_entidad(sk_entidad),
     sk_ubicacion     integer NOT NULL DEFAULT -1
@@ -420,11 +421,12 @@ CREATE TABLE IF NOT EXISTS gold.fact_contrato (
     id_proceso       text,
 
     -- Medidas
-    valor_contrato   numeric(18,2),
-    valor_ajustado   numeric(18,2),
-    valor_gastado    numeric(18,2) NOT NULL DEFAULT 0,
-    duracion_dias    integer,
-    contrato_unidad  smallint NOT NULL DEFAULT 1,
+    valor_contrato       numeric(18,2),
+    valor_ajustado       numeric(18,2),
+    valor_gastado        numeric(18,2) NOT NULL DEFAULT 0,
+    duracion_dias        integer,
+    dias_firma_a_inicio  integer,
+    contrato_unidad      smallint NOT NULL DEFAULT 1,
 
     -- Banderas de calidad heredadas de silver (sin el prefijo flag_)
     es_atipico              boolean NOT NULL DEFAULT false,
@@ -451,6 +453,8 @@ COMMENT ON COLUMN gold.fact_contrato.id_fila IS
     '= silver.contratos.id_fila = bronze.secop_raw.id_fila. Trazabilidad hasta el CSV de origen en un JOIN.';
 COMMENT ON COLUMN gold.fact_contrato.duracion_dias IS
     'fecha_fin - fecha_inicio. NULL si falta alguna. Las duraciones negativas estan marcadas con es_fechas_incoherentes y no se corrigen.';
+COMMENT ON COLUMN gold.fact_contrato.dias_firma_a_inicio IS
+    'fecha_inicio - fecha_firma. NULL si falta alguna. Puede ser negativo (inicio anterior a la firma): es un hecho del dato y no se corrige.';
 
 -- ---------------------------------------------------------------------
 -- 5.1 Particiones (13)
@@ -627,12 +631,15 @@ WHERE sk_contrato <> -1;
 -- ---------------------------------------------------------------------
 -- El LEFT JOIN trae cada clave y el COALESCE con -1 es la red de seguridad:
 -- una fila sin dimension cae en el miembro desconocido, no se pierde.
--- Las fechas se convierten a clave entera con gold.sk_fecha (NULL -> -1).
+-- La fecha de firma se convierte a clave entera con gold.sk_fecha (NULL -> -1).
+-- Las fechas de inicio y fin NO se guardan: se resumen en duracion_dias y
+-- dias_firma_a_inicio (ambas NULL si falta alguna de las fechas).
 INSERT INTO gold.fact_contrato (
-    sk_fecha_firma, id_fila, sk_fecha_inicio, sk_fecha_fin,
+    sk_fecha_firma, id_fila,
     sk_entidad, sk_ubicacion, sk_proveedor, sk_contrato,
     id_contrato, id_proceso,
-    valor_contrato, valor_ajustado, valor_gastado, duracion_dias,
+    valor_contrato, valor_ajustado, valor_gastado,
+    duracion_dias, dias_firma_a_inicio,
     es_atipico, es_valor_extremo, es_valor_cero, es_valor_relleno,
     es_valor_repetido, es_version_contrato, es_fecha_invalida,
     es_fechas_incoherentes
@@ -640,8 +647,6 @@ INSERT INTO gold.fact_contrato (
 SELECT
     gold.sk_fecha(s.fecha_firma),
     s.id_fila,
-    gold.sk_fecha(s.fecha_inicio),
-    gold.sk_fecha(s.fecha_fin),
     coalesce(de.sk_entidad,   -1),
     coalesce(du.sk_ubicacion, -1),
     coalesce(dp.sk_proveedor, -1),
@@ -656,6 +661,7 @@ SELECT
          THEN coalesce(s.valor_ajustado, 0)
          ELSE 0 END,
     s.fecha_fin - s.fecha_inicio,
+    s.fecha_inicio - s.fecha_firma,
     coalesce(s.flag_valor_atipico,        false),
     coalesce(s.flag_valor_extremo,        false),
     coalesce(s.flag_valor_cero,           false),
@@ -682,6 +688,8 @@ WHERE s.id_fila > :lote_desde AND s.id_fila <= :lote_hasta;
 --   v_contratos_validos  filtro ya aplicado. Es la que se conecta a Power BI.
 -- El filtro vive en la vista y no en el tablero: un filtro de Power BI se
 -- puede desactivar con un clic.
+-- Las fechas de inicio y fin no estan en oro: se recuperan por id_fila
+-- desde silver.contratos.
 -- =====================================================================
 CREATE OR REPLACE VIEW gold.v_contratos AS
 SELECT
@@ -689,8 +697,6 @@ SELECT
     f.sk_fecha_firma,
     tf.fecha         AS fecha_firma,
     tf.anio, tf.semestre, tf.trimestre, tf.mes, tf.nombre_mes,
-    ti.fecha         AS fecha_inicio,
-    tn.fecha         AS fecha_fin,
     f.id_contrato,
     f.id_proceso,
     e.codigo_entidad, e.nombre_entidad, e.nit_entidad, e.nivel_entidad,
@@ -702,14 +708,13 @@ SELECT
     f.valor_ajustado,
     f.valor_gastado,
     f.duracion_dias,
+    f.dias_firma_a_inicio,
     f.contrato_unidad,
     f.es_atipico, f.es_valor_extremo, f.es_valor_cero, f.es_valor_relleno,
     f.es_valor_repetido, f.es_version_contrato, f.es_fecha_invalida,
     f.es_fechas_incoherentes
 FROM gold.fact_contrato f
 JOIN gold.dim_tiempo     tf ON tf.sk_tiempo    = f.sk_fecha_firma
-JOIN gold.dim_tiempo     ti ON ti.sk_tiempo    = f.sk_fecha_inicio
-JOIN gold.dim_tiempo     tn ON tn.sk_tiempo    = f.sk_fecha_fin
 JOIN gold.dim_entidad    e  ON e.sk_entidad    = f.sk_entidad
 JOIN gold.dim_ubicacion  u  ON u.sk_ubicacion  = f.sk_ubicacion
 JOIN gold.dim_proveedor  p  ON p.sk_proveedor  = f.sk_proveedor
@@ -773,11 +778,9 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE i.inhparent = 'gold.fact_contrato'::regclass
 GROUP BY n.nspname;
 
-\echo '-- 9.5 Huerfanos por clave foranea (los 7 conteos deben dar 0):'
+\echo '-- 9.5 Huerfanos por clave foranea (los 5 conteos deben dar 0):'
 SELECT
   (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_tiempo    d ON d.sk_tiempo    = f.sk_fecha_firma  WHERE d.sk_tiempo    IS NULL) AS huerfanos_firma,
-  (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_tiempo    d ON d.sk_tiempo    = f.sk_fecha_inicio WHERE d.sk_tiempo    IS NULL) AS huerfanos_inicio,
-  (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_tiempo    d ON d.sk_tiempo    = f.sk_fecha_fin    WHERE d.sk_tiempo    IS NULL) AS huerfanos_fin,
   (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_entidad   d ON d.sk_entidad   = f.sk_entidad      WHERE d.sk_entidad   IS NULL) AS huerfanos_entidad,
   (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_ubicacion d ON d.sk_ubicacion = f.sk_ubicacion    WHERE d.sk_ubicacion IS NULL) AS huerfanos_ubicacion,
   (SELECT count(*) FROM gold.fact_contrato f LEFT JOIN gold.dim_proveedor d ON d.sk_proveedor = f.sk_proveedor    WHERE d.sk_proveedor IS NULL) AS huerfanos_proveedor,
@@ -795,16 +798,16 @@ SELECT count(*) AS pk_duplicada FROM (
     GROUP BY 1, 2 HAVING count(*) > 1
 ) d;
 
-\echo '-- 9.8 Filas en el miembro desconocido -1 (mide el vacio del origen,'
-\echo '--     no es un error del modelo):'
+\echo '-- 9.8 Filas en el miembro desconocido -1 y medidas de fecha sin calcular'
+\echo '--     (miden el vacio del origen, no es un error del modelo):'
 SELECT
   count(*) FILTER (WHERE sk_entidad     = -1) AS sin_entidad,
   count(*) FILTER (WHERE sk_ubicacion   = -1) AS sin_ubicacion,
   count(*) FILTER (WHERE sk_proveedor   = -1) AS sin_proveedor,
   count(*) FILTER (WHERE sk_contrato    = -1) AS sin_clasificacion,
   count(*) FILTER (WHERE sk_fecha_firma = -1) AS sin_fecha_firma,
-  count(*) FILTER (WHERE sk_fecha_inicio = -1) AS sin_fecha_inicio,
-  count(*) FILTER (WHERE sk_fecha_fin   = -1) AS sin_fecha_fin
+  count(*) FILTER (WHERE dias_firma_a_inicio IS NULL) AS sin_dias_firma_a_inicio,
+  count(*) FILTER (WHERE duracion_dias       IS NULL) AS sin_duracion
 FROM gold.fact_contrato;
 
 \echo '-- 9.9 El dinero por anio (billones). Sin atipicos debe acercarse a las'
@@ -876,6 +879,13 @@ WHERE valor_gastado > coalesce(valor_ajustado, 0);
 \echo '-- 9.17 El usuario de solo-lectura ve gold y nada mas:'
 SELECT has_schema_privilege('secop_lectura', 'gold',   'USAGE') AS ve_gold,
        has_schema_privilege('secop_lectura', 'silver', 'USAGE') AS ve_silver;
+
+\echo '-- 9.18 dias_firma_a_inicio: cuantos son negativos (inicio anterior a la firma).'
+\echo '--      Es un hecho del dato, no un error; se reporta, no se corrige:'
+SELECT count(*) FILTER (WHERE dias_firma_a_inicio < 0)  AS negativos,
+       count(*) FILTER (WHERE dias_firma_a_inicio >= 0) AS no_negativos,
+       count(*) FILTER (WHERE dias_firma_a_inicio IS NULL) AS sin_calcular
+FROM gold.fact_contrato;
 
 \echo ''
 \echo '### Modelo gold listo. Si los hechos no se cargaron, revisar el bloque 6.2.'

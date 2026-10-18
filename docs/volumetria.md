@@ -122,11 +122,11 @@ Los conteos por archivo son los de `bronze.log_cargas`; los rangos de `id_fila` 
 |---|---|---:|---|
 | `dim_entidad` | `codigo_entidad` (nombre, NIT, nivel) | **15.821** + el `-1` | medido |
 | `dim_ubicacion` | pares `(departamento, municipio)` | **1.176** + el `-1` | medido |
-| `dim_proveedor` | `documento_proveedor` | **2.178.559** + el `-1` = 2.181.587 | medido |
+| `dim_proveedor` | `documento_proveedor` | **2.181.586** + el `-1` = 2.181.587 | medido |
 | `dim_contrato` | combinación `(modalidad, tipo_contrato, estado_proceso, origen)` | **1.014** + el `-1` | medido |
 | `dim_tiempo` | calendario 2000-01-01 a 2060-12-31 | **22.282** (22.281 días + el `-1`) | medido |
 
-> **`dim_proveedor`: 2.178.559, no 2.178.559.** Una cifra anterior de 2.178.559 era incorrecta. Tres consultas independientes dan 2.178.559: documentos distintos en plata, filas de la dimensión sin el `-1` y proveedores presentes en `fact_contrato`.
+> **`dim_proveedor`: 2.181.586 proveedores, 2.181.587 filas con el `-1`.** Cifras anteriores (2.178.559 y 2.178.560) eran incorrectas. Se verificó con `count(*)` sobre la dimensión y con `mv_kpis_globales` (2.181.586 proveedores).
 
 **Medido sobre `fact_contrato` y `dim_ubicacion`:**
 
@@ -487,7 +487,7 @@ FROM silver.contratos;
 5. **Marcar es mejor que borrar.** Las 33.939 filas atípicas siguen ahí, marcadas. Borrarlas daría un número más limpio y peor, porque ocultaría el vacío. Lo mismo con las 616 fechas incoherentes.
 6. **El dinero se suma con `valor_ajustado`, nunca con `valor_contrato`.** 2018 da 102,54 billones frente a ≈ 100 oficiales; con el valor sin ajustar daba ≈ 692.
 7. **El conteo nunca se lee de la ficha del portal.** La metadata del portal está desfasada; hay que contar con `count(*)`. Es la razón de que RF-14 obligue a recontar después de cargar.
-8. **Lo que no se puede proyectar es el número de claves distintas de un texto libre**, y por eso las cardinalidades de las dimensiones se reportan medidas (15.821 entidades, 2.178.559 proveedores, 1.176 ubicaciones, 1.014 combinaciones de contrato).
+8. **Lo que no se puede proyectar es el número de claves distintas de un texto libre**, y por eso las cardinalidades de las dimensiones se reportan medidas (15.821 entidades, 2.181.586 proveedores, 1.176 ubicaciones, 1.014 combinaciones de contrato).
 9. **La volumetría tiene dos puntos aún sin medir y eso es visible en el documento:** el tamaño real de `gold` en disco (sección 5.3) y los valores distintos por atributo de `dim_contrato` (3.3). Cada uno tiene su consulta en la sección 9.
 
 ---
